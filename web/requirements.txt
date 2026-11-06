@@ -1,0 +1,6 @@
+flask>=3.0
+markdown>=3.5
+pymupdf>=1.22
+# 用哪个接口装哪个（都装也行）
+anthropic>=0.40
+openai>=1.40

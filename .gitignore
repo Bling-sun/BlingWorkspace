@@ -1,0 +1,16 @@
+# 个人画像：每个人自己写，不进仓库（模板见 profile.example.md）
+profile.md
+
+__pycache__/
+*.pyc
+.DS_Store
+
+# 在仓库目录里试跑 fetch_paper.py 时默认下到这里
+papers/
+
+# 网页端：本机设置（含 API Key）和上传的临时 PDF
+web/config.json
+web/_uploads/
+.venv/
+kelip-paper-reading-main/
+Claude outputs/

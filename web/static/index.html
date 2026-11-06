@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bling 精读工作台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b4532a'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 5 5v11H14a5 5 0 0 1-5-5z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><span class="logo">读</span><span>bling 精读工作台</span></a>
+  <nav class="crumbs" id="crumbs"></nav>
+  <div class="top-actions">
+    <button class="chip model-chip" id="modelChip" title="模型设置"></button>
+    <button class="btn ghost" id="settingsBtn">设置</button>
+  </div>
+</header>
+<main id="app"><div class="welcome" id="bootMsg"><h3>正在连接后端…</h3></div></main>
+<script>
+  // 直接双击打开了这个文件（file://）：前端连不上后端，告诉用户正确的打开方式
+  if (location.protocol === 'file:') document.getElementById('bootMsg').innerHTML =
+    '<h3>请先启动后端</h3><p>这个页面要通过本地服务打开：双击项目根目录的 <code>start.bat</code>，' +
+    '它会自动装好环境并在浏览器里打开 <code>http://127.0.0.1:8765</code>。</p>';
+</script>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <div class="modal-head"><h3 id="modalTitle"></h3><button class="icon-btn" data-close aria-label="关闭">✕</button></div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+<div class="lightbox" id="lightbox" hidden><img alt=""><p></p></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/vendor/marked.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

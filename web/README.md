@@ -1,0 +1,79 @@
+# bling 精读工作台（网页端）
+
+bling-paper-reading 的网页版：把「拉材料 → 六站带读 → 边讲边记 → 导出笔记」整条流程搬进浏览器。
+后端直接调用仓库里的 `scripts/fetch_paper.py` / `extract_figures.py`，讲解时把 `SKILL.md`、`references/examples.md`、
+`profile.md` 和这篇论文的材料一起交给模型，所以讲法和在 Claude Code 里用这个 skill 一样。
+
+## 启动
+
+**Windows**：双击项目根目录的 `start.bat`。它会：
+
+1. 找电脑上的 Python 3.9+；**没装的话问你要不要用 winget 自动装 Python 3.12**（只装到当前用户，不用管理员），
+   winget 也没有就打开 python.org 下载页，告诉你怎么装（记得勾「Add python.exe to PATH」）；
+2. 在项目根目录建虚拟环境 `.venv`，装 `web/requirements.txt` 里的依赖（官方源不通会自动换清华镜像）；
+3. 启动网页端并打开浏览器 http://127.0.0.1:8765 （8765 被占用会自动换下一个端口）。
+
+第一次要几分钟，之后双击就是秒开。启动窗口别关，关了网页端就停了。
+
+**macOS / Linux**：`./start.sh`。**手动**：`pip install -r web/requirements.txt && python web/server.py --open`。
+
+> 直接双击 `web/static/index.html` 是打不开的——页面要通过本地服务访问。
+> 导入论文时克隆官方代码要用 git，没装 git 只是跳过这一步。
+
+第一次打开点右上角「设置」选模型接口，填好后点「保存并测试连接」确认能用。每个接口的 Key / 模型分开保存，随时切换。
+
+| 接口 | 要准备什么 | 费用 |
+|---|---|---|
+| **本机 Claude Code** | 装 Claude Code（PowerShell：`irm https://claude.ai/install.ps1 \| iex`），终端里运行一次 `claude` 用会员账号登录 | 用 Claude 会员（Pro / Max）额度，和网页版 Claude 共用，**不需要 API Key** |
+| **本机 Codex** | 装 Codex（`npm i -g @openai/codex`，或者 VS Code 里的 Codex 扩展），运行 `codex login` 用 ChatGPT 账号登录 | 用 ChatGPT 会员的 Codex 额度，**不需要 API Key** |
+| **DeepSeek** | 在 platform.deepseek.com 建 API Key，模型名默认 `deepseek-chat` | 按 DeepSeek API 用量计费 |
+| Claude API | console.anthropic.com 的 API Key | 按 API 用量计费（和会员是两回事） |
+| 其他 OpenAI 兼容 | 服务商的 Base URL + Key + 模型名（通义、Kimi、智谱、本地 Ollama / vLLM…） | 看服务商 |
+| 演示模式 | 无 | 不调用模型，熟悉界面用 |
+
+几点说明：
+
+- 两个「本机」接口是网页端在后台调用你电脑上的 `claude -p` / `codex exec`，工作目录就是论文目录，只给读文件的权限（Claude Code 只开 Read / Grep / Glob，Codex 用只读沙箱）。每次回复会多几秒启动时间。
+- 环境变量里有 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 时命令行会改用 API 计费，网页端调用时会自动把它们去掉，确保走会员额度。
+- 命令行装在不常见的位置找不到时，在设置里填它的完整路径。
+- DeepSeek 和 Codex 看不到图片像素，讲图时按图注和正文讲；DeepSeek 的推理模型不支持工具调用时会自动退回只用上下文里的材料。
+- Key 只存在本机 `web/config.json`，已经在 `.gitignore` 里，不会被 `push_to_github.bat` 上传。
+
+## 一篇论文的完整流程
+
+1. **导入**（文献库页）：贴 arXiv 链接 / ID、PDF 直链，或者上传本地 PDF，或者填一个已经有的论文目录。
+   日志实时滚动，跑完点「开始精读」。论文里没写代码地址的，可以在「官方代码仓库」里手动填，或者导入后在「代码 / 文件」里补。
+2. **阅读**（左栏）：
+   - PDF：浏览器自带阅读器；图表卡片上的「PDF 第 N 页」直接跳过去。
+   - 图表：自动裁好的每张图和表，点开放大；「问 AI」把图附到下一条提问，「进笔记」插进当前站的笔记；裁坏了可以「重新裁图」。
+   - 大纲：章节、公式在 paper.tex 里的行号。
+   - 代码 / 文件：浏览官方代码和论文目录。点行号选起点、Shift+点选终点，「附到提问」把这几行发给模型。
+3. **分析讨论**（中栏）：顶上是站点导航 开场 → ① 动机 → … → ⑥ 例子 →（⑦ 实验）。
+   点「▶ 开始」或「下一站」按 SKILL.md 讲一站；随时插话提问。快捷按钮：没懂换个讲法、举个例子走一遍、翻译原文、和 X 的区别、接着说。
+   模型会自己读 paper.tex / 代码、先看图再讲（回复上方「查阅了 N 处」可以展开看它读了什么），讲到的图直接显示在回复里。
+   讨论记录存在论文目录的 `discussion.json`。
+4. **精读笔记**（右栏）：按模板分节——基本情况、导读地图、①–⑦、问答、代码 ↔ 论文。
+   - 每站讲完点「整理进笔记」或某节的「✨ AI 整理」，AI 根据这一站的讨论写草稿，你选择采用 / 追加 / 放弃，也可以直接编辑（Markdown）。
+   - 回复下面的「记入问答」把那一组问答压成一条记进「问答」。
+   - 自动保存：`notes.json`（每节的 Markdown）+ `精读笔记.html`（随时更新，和 figures/ 放在一起时直接打开）。
+5. **导出**：右上角「导出 HTML」生成单文件 HTML，图片内嵌，换电脑、发给别人都能直接打开；可选附上完整讨论记录。
+   要 PDF 就在浏览器里打印 → 另存为 PDF（打印样式已经调好）。
+
+## 和命令行 skill 共用同一份材料
+
+- 论文目录结构完全一样（`paper.pdf` `paper.tex` `figures/` `code/` …），网页端只多了 `discussion.json` 和 `notes.json`。
+- 笔记格式都是 `精读笔记.html`、同一份模板（`references/notes-template.html`）：在 Claude Code 里让 agent 继续写，
+  网页端下次打开会读到它改过的内容；老的 `精读笔记.md` 也会被按「## 标题」读进来。
+- `profile.md`（用户画像）在设置里就能编辑。
+
+## 目录
+
+| 文件 | 是什么 |
+|---|---|
+| `server.py` | Flask 后端：论文库、导入任务、文件、讨论（SSE 流式）、笔记、导出 |
+| `context.py` | 拼给模型的上下文（网页端约定 + SKILL.md + 样例 + 画像 + 论文材料）和读文件 / 看图工具 |
+| `llm.py` | 模型调用：本机 Claude Code / 本机 Codex / DeepSeek / Claude API / OpenAI 兼容 / 演示，带工具调用循环 |
+| `notes.py` | 笔记读写、渲染成 HTML、导出单文件 |
+| `static/` | 前端（原生 JS，无需构建；marked + DOMPurify 已放在 `static/vendor/`） |
+
+只监听 `127.0.0.1`，是给自己本机用的工具；要在局域网里给别人用，改 `--host 0.0.0.0` 前先想好 Key 的安全。

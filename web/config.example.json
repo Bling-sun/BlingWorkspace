@@ -1,0 +1,16 @@
+{
+ "provider": "claude_cli",
+ "max_tokens": 8000,
+ "use_tools": true,
+ "max_paper_chars": 160000,
+ "papers_root": "D:/CODE/bling-paper-reading/papers",
+ "extra_papers": [],
+ "host": "127.0.0.1",
+ "port": 8765,
+ "profiles": {
+  "claude_cli": {"model": ""},
+  "codex_cli": {"model": ""},
+  "deepseek": {"api_key": "sk-…", "base_url": "https://api.deepseek.com", "model": "deepseek-chat"},
+  "anthropic": {"api_key": "", "model": "claude-sonnet-4-5"}
+ }
+}

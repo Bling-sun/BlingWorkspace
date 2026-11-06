@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="bling-paper-reading">
+<title>精读笔记 · {{标题}}</title>
+<style>
+:root{--bg:#fbfaf7;--paper:#ffffff;--ink:#1f2328;--muted:#636c76;--line:#e4e1da;--accent:#b4532a;--accent-soft:#f6e7df;--code:#f4f2ee;--mark:#fff3b0}
+@media (prefers-color-scheme:dark){:root{--bg:#16181b;--paper:#1d2024;--ink:#e6e6e3;--muted:#9aa1a9;--line:#2f3338;--accent:#e08a5f;--accent-soft:#3a2a22;--code:#25292e;--mark:#5a4d12}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 24px 80px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:40px}
+.toc{position:sticky;top:24px;align-self:start;font-size:14px}
+.toc p{margin:0 0 8px;color:var(--muted);font-size:12px;letter-spacing:.08em}
+.toc a{display:block;padding:4px 10px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none}
+.toc a:hover{color:var(--accent);border-color:var(--accent)}
+.notes{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:44px 52px;min-width:0}
+.note-head{border-bottom:1px solid var(--line);padding-bottom:22px;margin-bottom:8px}
+.kicker{margin:0;color:var(--accent);font-size:13px;font-weight:600;letter-spacing:.12em}
+h1{font-size:28px;line-height:1.35;margin:6px 0 10px}
+.meta{margin:0;color:var(--muted);font-size:14px}
+h2{font-size:21px;margin:42px 0 14px;padding-top:6px;scroll-margin-top:20px}
+h3{font-size:17px;margin:26px 0 10px}
+a{color:var(--accent)}
+p,ul,ol{margin:10px 0}
+li{margin:3px 0}
+strong{font-weight:650}
+mark{background:var(--mark);color:inherit;padding:0 2px}
+code{font-family:"JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:.88em;background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;line-height:1.55}
+pre code{background:none;padding:0;font-size:13.5px}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--code);font-weight:600;white-space:nowrap}
+img{max-width:100%;max-height:560px;width:auto;height:auto;border-radius:6px;border:1px solid var(--line);background:#fff}
+figure{margin:18px 0;text-align:center}
+figcaption{color:var(--muted);font-size:13.5px;margin-top:6px}
+blockquote{margin:14px 0;padding:8px 16px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0}
+.note-sec:empty::after,.empty{color:var(--muted);font-style:italic}
+.qa li{margin:12px 0}
+details{margin:12px 0;border:1px solid var(--line);border-radius:8px;padding:8px 14px}
+summary{cursor:pointer;color:var(--muted)}
+.foot{margin-top:48px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr;padding:20px 16px 60px;gap:16px}.toc{position:static;display:flex;flex-wrap:wrap;gap:4px}.toc p{width:100%}.toc a{border:1px solid var(--line);border-radius:999px;padding:2px 10px}.notes{padding:24px 18px}}
+@media print{body{background:#fff}.toc{display:none}.wrap{display:block;padding:0}.notes{border:none;padding:0}h2{break-after:avoid}figure,pre,table{break-inside:avoid}}
+</style>
+</head>
+<body>
+<!--
+  bling-paper-reading 精读笔记模板（HTML）。复制到论文目录，命名为「精读笔记.html」。
+  规则：
+  · 每个 <section class="note-sec" data-key="…"> 是一节，data-key 不要改（网页端按它读写）；内容写在 <h2> 后面。
+  · 图用相对路径：<figure><img src="figures/fig-03.png" alt="图 3"><figcaption>图 3 · 一句话说明</figcaption></figure>
+  · 公式放 <pre><code>…</code></pre>，用 Unicode 写；正文里的 < > & 要写成 &lt; &gt; &amp;。
+  · 还没讲到的节保留空的 section；这段注释写好笔记后可以删掉。
+-->
+<div class="wrap">
+<nav class="toc" aria-label="目录">
+<p>目录</p>
+<a href="#basic">基本情况</a>
+<a href="#map">导读地图</a>
+<a href="#s1">① 动机</a>
+<a href="#s2">② 架构</a>
+<a href="#s3">③ 训练</a>
+<a href="#s4">④ 数据</a>
+<a href="#s5">⑤ 信息流</a>
+<a href="#s6">⑥ 例子走一遍</a>
+<a href="#s7">⑦ 实验与地位</a>
+<a href="#qa">问答</a>
+<a href="#code">代码 ↔ 论文</a>
+</nav>
+<main class="notes">
+<header class="note-head">
+<p class="kicker">精读笔记</p>
+<h1 id="note-title">{{标题}}</h1>
+<p class="meta" id="note-meta">{{arXiv ID / 会议}} · {{机构}} · {{日期}} · 代码：{{链接，或"无"}} · 材料都在本目录（paper.pdf / paper.tex / figures/）</p>
+</header>
+
+<section class="note-sec" data-key="basic" id="basic">
+<h2>基本情况</h2>
+<ul>
+<li>一句话：输入 {{…}} → 输出 {{…}}</li>
+<li>开源：代码 {{…}} / 权重 {{…}} / 数据 {{…}}</li>
+<li>和读过的哪篇最像、差在哪：{{…}}</li>
+</ul>
+</section>
+
+<section class="note-sec" data-key="map" id="map">
+<h2>导读地图</h2>
+<p>开讲前填好；讲的时候照着走。行号指 paper.tex（没有源码就写页码）。</p>
+<table>
+<thead><tr><th>站</th><th>这一站讲清楚什么（一句话）</th><th>图</th><th>原文位置</th><th>代码</th></tr></thead>
+<tbody>
+<tr><td>① 动机</td><td>{{要解决什么、以前卡在哪、押注什么}}</td><td>图 {{N}}</td><td>§1 L{{…}}</td><td>—</td></tr>
+<tr><td>② 架构</td><td>{{有哪几块、怎么接}}</td><td>图 {{N}}</td><td>§{{…}} L{{…}}</td><td><code>{{文件}}</code></td></tr>
+<tr><td>③ 训练</td><td>{{损失在逼它学什么、几个阶段}}</td><td>式 {{N}}</td><td>§{{…}} / 附录 {{…}}</td><td><code>{{loss 所在文件:行}}</code></td></tr>
+<tr><td>④ 数据</td><td>{{一条样本有哪些字段、多少数据}}</td><td>图 {{N}} / 表 {{N}}</td><td>§{{…}}</td><td><code>{{dataset / transform}}</code></td></tr>
+<tr><td>⑤ 信息流</td><td>{{输入 → … → 输出，训练和推理差在哪}}</td><td>图 {{N}}</td><td>§{{…}}</td><td><code>{{推理入口}}</code></td></tr>
+<tr><td>⑥ 例子</td><td>场景：{{一句具体指令}}</td><td>—</td><td>—</td><td><code>{{要逐行看的函数}}</code></td></tr>
+<tr><td>⑦ 实验</td><td>{{最关键的 2–3 个结果}}</td><td>图 / 表 {{N}}</td><td>§{{…}}</td><td>—</td></tr>
+</tbody>
+</table>
+</section>
+
+<section class="note-sec" data-key="s1" id="s1">
+<h2>① 动机</h2>
+</section>
+
+<section class="note-sec" data-key="s2" id="s2">
+<h2>② 架构</h2>
+<figure><img src="figures/fig-{{NN}}.png" alt="图 {{N}}"><figcaption>图 {{N}} · {{这张图是什么、怎么读}}</figcaption></figure>
+<table>
+<thead><tr><th>模块</th><th>来源 / 初始化</th><th>参数量</th><th>训练时更新吗</th><th>作用</th></tr></thead>
+<tbody></tbody>
+</table>
+</section>
+
+<section class="note-sec" data-key="s3" id="s3">
+<h2>③ 训练</h2>
+<pre><code>{{公式，Unicode 写法}}</code></pre>
+<table>
+<thead><tr><th>符号</th><th>是什么</th><th>形状 / 取值</th></tr></thead>
+<tbody></tbody>
+</table>
+</section>
+
+<section class="note-sec" data-key="s4" id="s4">
+<h2>④ 数据</h2>
+<table>
+<thead><tr><th>字段</th><th>形状</th><th>单位 / 取值</th><th>例子</th></tr></thead>
+<tbody></tbody>
+</table>
+</section>
+
+<section class="note-sec" data-key="s5" id="s5">
+<h2>⑤ 输入输出信息流</h2>
+<pre><code>{{文字流程图，箭头上标形状}}</code></pre>
+</section>
+
+<section class="note-sec" data-key="s6" id="s6">
+<h2>⑥ 例子走一遍</h2>
+</section>
+
+<section class="note-sec" data-key="s7" id="s7">
+<h2>⑦ 实验与地位</h2>
+</section>
+
+<section class="note-sec qa" data-key="qa" id="qa">
+<h2>问答</h2>
+<p>按时间顺序记用户问过的问题和最后讲通的答案（讲通之前绕的弯不用记）。</p>
+<ul>
+<li><strong>Q（第 {{N}} 站）</strong>：{{用户原话}}<br><strong>A</strong>：{{最后讲通的那个版本，几句话}}</li>
+</ul>
+</section>
+
+<section class="note-sec" data-key="code" id="code">
+<h2>代码 ↔ 论文</h2>
+<table>
+<thead><tr><th>论文里</th><th>代码位置</th><th>备注（对不上的地方写这里）</th></tr></thead>
+<tbody></tbody>
+</table>
+</section>
+
+<p class="foot" id="note-foot">由 bling-paper-reading 生成</p>
+</main>
+</div>
+</body>
+</html>

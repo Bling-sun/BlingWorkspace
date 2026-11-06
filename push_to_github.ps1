@@ -1,6 +1,7 @@
 ﻿# 把本目录推到 https://github.com/Bling-sun/bling-paper-reading
 # 由 push_to_github.bat 调用（用本机 Codex 自带的 PowerShell 7）。
-# 按这台电脑的实际配置：Git 从 PATH 动态查找；网络请求一律显式走代理 http://127.0.0.1:7897；
+# 优先使用 Git 的 ucrt64 / mingw64 本体，避免 cmd 启动器及凭据回调再次触发启动错误。
+# 网络请求一律显式走代理 http://127.0.0.1:7897；
 # 登录复用 Git Credential Manager 里已保存的 GitHub 凭据，不需要也不保存任何 token。
 #   push_to_github.bat              提交改动 → 只读检查连接 → 推送 → 核对远程提交
 #   push_to_github.bat -Check       只做检查（origin、敏感文件、GitHub 连接），不提交不推送
@@ -23,6 +24,22 @@ $MustIgnore = @('web/config.json', 'web/_uploads/', '.venv/', 'papers/', 'profil
 $Forbidden = '^(web/config\.json|web/_uploads/|\.venv/|papers/|profile\.md$)|(^|/)__pycache__/'
 
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
+
+function Find-NativeGit {
+    $onPath = Get-Command git -ErrorAction SilentlyContinue
+    $roots = @()
+    if ($onPath) { $roots += Split-Path (Split-Path $onPath.Source -Parent) -Parent }
+    $roots += 'D:\Git'
+    $roots += Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git'
+    foreach ($root in ($roots | Select-Object -Unique)) {
+        foreach ($relative in @('ucrt64\bin\git.exe','mingw64\bin\git.exe')) {
+            $candidate = Join-Path $root $relative
+            if (Test-Path -LiteralPath $candidate) { return (Get-Item -LiteralPath $candidate).FullName }
+        }
+    }
+    if ($onPath) { return $onPath.Source }
+    throw '没找到可用的 Git，请安装 Git for Windows。'
+}
 
 # 所有 git 调用都带 --no-pager 和 -C $repo；联网的命令（ls-remote / fetch / push）再显式带上代理
 function Git-Out {
@@ -55,9 +72,11 @@ try {
     Say '==== 上传到 GitHub：Bling-sun/bling-paper-reading ====' 'Cyan'
 
     # ---------- 1. Git ----------
-    $cmd = Get-Command git -ErrorAction SilentlyContinue
-    if (-not $cmd) { throw '没找到 git（PATH 里没有）。请先安装 Git for Windows。' }
-    $script:GitExe = $cmd.Source
+    $script:GitExe = Find-NativeGit
+    # push 会调用凭据程序；凭据程序也可能再次调用 git。
+    # 让子进程同样优先找到本体，而不是 PATH 中的 cmd\git.exe 启动器。
+    $nativeBin = Split-Path $script:GitExe -Parent
+    $env:PATH = $nativeBin + [IO.Path]::PathSeparator + $env:PATH
     Say "git：$script:GitExe（$((& $script:GitExe --no-pager --version) -join ' ')）"
     Say "仓库：$repo"
     Say "代理：$Proxy"
@@ -152,10 +171,11 @@ try {
     }
     $commits = @((Git-Out log --oneline $range).out)
     $files = @((Git-Out ls-tree -r --name-only HEAD).out)
-    $leak = $files | Where-Object { $_ -match $Forbidden }
+    $historicalFiles = @((Git-Out log --format= --name-only $range).out | Where-Object { $_ } | Sort-Object -Unique)
+    $leak = @($files + $historicalFiles) | Where-Object { $_ -match $Forbidden } | Sort-Object -Unique
     if ($leak) { throw ("要推送的提交里有不该上传的文件，已停止：" + ($leak -join '、')) }
     Say ''
-    Say "将推送 $($commits.Count) 个提交（仓库里共 $($files.Count) 个文件，已确认不含 API Key / 虚拟环境 / 论文材料）："
+    Say "将推送 $($commits.Count) 个提交（仓库里共 $($files.Count) 个文件，已检查敏感文件路径及待推送历史）："
     $commits | Select-Object -First 10 | ForEach-Object { Say "  $_" }
 
     # ---------- 6. 推送并核对 ----------

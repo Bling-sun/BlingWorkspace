@@ -123,9 +123,34 @@ if ($remoteBranch) {
         if ($LASTEXITCODE -ne 0) { Fail '和 GitHub 上已有的内容合并失败（看上面的报错）。' }
     }
 }
-$branch = (& $git rev-parse --abbrev-ref HEAD).Trim()
-& $git push -u origin "${branch}:main"
-if ($LASTEXITCODE -ne 0) { Fail '推送失败（看上面的报错）。常见原因：登录的不是 Bling-sun 账号，或者网络连不上 github.com。' }
+# 推送：参数全用固定的 ASCII（HEAD:main），不拼变量。
+# 有的电脑上（比如装了加密 / 安全软件）PowerShell 直接启动 git 会报「Invalid command line argument」，
+# 这时改用 Start-Process 再启动一次。两种都要真的看到退出码 0 才算成功。
+$pushCode = $null
+try {
+    $ErrorActionPreference = 'Stop'
+    & $git push -u origin HEAD:main
+    $pushCode = $LASTEXITCODE
+} catch {
+    Say "PowerShell 没能启动 git push（$($_.Exception.Message.Trim())），换一种方式再试…" 'Yellow'
+} finally {
+    $ErrorActionPreference = 'Continue'
+}
+if ($null -eq $pushCode) {
+    try {
+        $p = Start-Process -FilePath $git -ArgumentList @('push', '-u', 'origin', 'HEAD:main') -NoNewWindow -Wait -PassThru -WorkingDirectory $Root
+        $pushCode = $p.ExitCode
+    } catch {
+        Say "$($_.Exception.Message)" 'Yellow'
+        $pushCode = -1
+    }
+}
+if ($pushCode -ne 0) {
+    Say ''
+    Say '推送没成功，也可以手动推：在这个文件夹的地址栏输入 cmd 回车，然后运行' 'Yellow'
+    Say '    git push -u origin HEAD:main' 'Yellow'
+    Fail "推送失败（退出码 $pushCode，看上面的报错）。常见原因：登录的不是 Bling-sun 账号，或者网络连不上 github.com。"
+}
 
 Say ''
 Say '✓ 已上传：https://github.com/Bling-sun/bling-paper-reading' 'Green'

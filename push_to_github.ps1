@@ -1,104 +1,108 @@
 ﻿# 把本目录推到 https://github.com/Bling-sun/bling-paper-reading
-# 由 push_to_github.bat 调用（优先用 Codex 自带的 PowerShell 7 和 git，和 D:\Personal Plan 里能成功上传的脚本同一套做法）。
-# 提交说明自动生成；想自己写：push_to_github.bat "说明文字"。只检查不上传：push_to_github.bat -Check
-param([string]$Message = '', [switch]$Check)
+# 由 push_to_github.bat 调用（用本机 Codex 自带的 PowerShell 7）。
+# 按这台电脑的实际配置：Git 从 PATH 动态查找；网络请求一律显式走代理 http://127.0.0.1:7897；
+# 登录复用 Git Credential Manager 里已保存的 GitHub 凭据，不需要也不保存任何 token。
+#   push_to_github.bat              提交改动 → 只读检查连接 → 推送 → 核对远程提交
+#   push_to_github.bat -Check       只做检查（origin、敏感文件、GitHub 连接），不提交不推送
+#   push_to_github.bat -Message "说明"
+param(
+    [string]$Message = '',
+    [switch]$Check,
+    [string]$Proxy = 'http://127.0.0.1:7897'
+)
 $ErrorActionPreference = 'Stop'
-$PSNativeCommandUseErrorActionPreference = $false   # PowerShell 7：git 非 0 退出码由下面自己判断
-Set-Location -LiteralPath $PSScriptRoot
+$PSNativeCommandUseErrorActionPreference = $false   # git 的退出码由下面自己判断
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
+$repo = $PSScriptRoot                                 # 即 D:\CODE\bling-paper-reading
 $RemoteUrl = 'https://github.com/Bling-sun/bling-paper-reading.git'
 $RepoPage = 'https://github.com/Bling-sun/bling-paper-reading'
 
+# 绝不能上传的东西：.gitignore 必须有这些规则，推送前还会再查一遍要推的提交里有没有
+$MustIgnore = @('web/config.json', 'web/_uploads/', '.venv/', 'papers/', 'profile.md', '__pycache__/')
+$Forbidden = '^(web/config\.json|web/_uploads/|\.venv/|papers/|profile\.md$)|(^|/)__pycache__/'
+
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
 
-# ---------- 选 git ----------
-# 1) Codex 自带的 git（这台电脑上用它推送能成功）
-# 2) 已安装 Git 的 mingw64\bin\git.exe 本体（不经过 cmd\git.exe 启动器）
-# 3) PATH 里的 git
-function Find-Git {
-    # 用 [IO.Path]::Combine / [IO.File]::Exists：Join-Path、Test-Path 碰到不存在的盘符（比如没有 D 盘）会直接报错
-    $c = @()
-    if ($env:USERPROFILE) { $c += [System.IO.Path]::Combine($env:USERPROFILE, '.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\mingw64\bin\git.exe') }
-    $onPath = Get-Command git -ErrorAction SilentlyContinue
-    $roots = @('D:\Git', $env:ProgramFiles, $env:LOCALAPPDATA)
-    if ($onPath) { $roots = @([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName($onPath.Source))) + $roots }
-    foreach ($root in $roots) {
-        if (-not $root) { continue }
-        foreach ($sub in @('mingw64\bin\git.exe', 'Git\mingw64\bin\git.exe', 'Programs\Git\mingw64\bin\git.exe')) {
-            $c += [System.IO.Path]::Combine($root, $sub)
-        }
-    }
-    if ($onPath) { $c += $onPath.Source }
-    foreach ($p in $c) { if ($p -and [System.IO.File]::Exists($p)) { return $p } }
-    return $null
+# 所有 git 调用都带 --no-pager 和 -C $repo；联网的命令（ls-remote / fetch / push）再显式带上代理
+function Git-Out {
+    # 用 $args 而不是声明参数：git 的 -A / -m / -q 之类会被 PowerShell 当成函数自己的参数名
+    $A = @($args)
+    $out = & $script:GitExe --no-pager -C $repo -c maintenance.auto=false @A
+    return @{ code = $LASTEXITCODE; out = @($out) }
+}
+function Git-Run {
+    # 用 $args 而不是声明参数：git 的 -A / -m / -q 之类会被 PowerShell 当成函数自己的参数名
+    $A = @($args)
+    & $script:GitExe --no-pager -C $repo -c maintenance.auto=false @A
+    if ($LASTEXITCODE -ne 0) { throw "git $($A[0]) 失败（退出码 $LASTEXITCODE）" }
+}
+function Git-Net {
+    # 用 $args 而不是声明参数：git 的 -A / -m / -q 之类会被 PowerShell 当成函数自己的参数名
+    $A = @($args)
+    $out = & $script:GitExe --no-pager -C $repo -c "http.proxy=$Proxy" @script:CredArgs @A
+    return @{ code = $LASTEXITCODE; out = @($out) }
 }
 
-function Invoke-Git {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$GitArguments)
-    & $script:Git --no-pager -c maintenance.auto=false @GitArguments
-    if ($LASTEXITCODE -ne 0) { throw "git $($GitArguments[0]) 失败（退出码 $LASTEXITCODE）" }
-}
-
-# 提交说明里不能有控制字符（git 会拒绝 NUL）；双引号在 Windows PowerShell 5.1 传参时会出错，换成单引号
+# 提交说明里不能有控制字符（git 拒绝 NUL）
 function Get-SafeText([string]$t) {
     if (-not $t) { return '' }
-    return ((($t -replace "`r", '') -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '') -replace [char]0xFFFD, '' -replace '"', "'").Trim()
+    return ((($t -replace "`r", '') -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '') -replace [char]0xFFFD, '').Trim()
 }
 
 try {
     Say ''
     Say '==== 上传到 GitHub：Bling-sun/bling-paper-reading ====' 'Cyan'
-    $script:Git = Find-Git
-    if (-not $script:Git) {
-        Start-Process 'https://git-scm.com/download/win'
-        throw '没找到 git。请先安装 Git（默认选项一路下一步），装完重新双击 push_to_github.bat。'
-    }
-    Say "git：$script:Git"
 
-    # 不该进仓库的东西
-    $must = @('kelip-paper-reading-main/', 'Claude outputs/', '.venv/', 'web/config.json', 'web/_uploads/', 'papers/', 'profile.md', '__pycache__/')
-    $gi = if (Test-Path .gitignore) { Get-Content .gitignore -Encoding UTF8 } else { @() }
-    $add = $must | Where-Object { $gi -notcontains $_ }
-    if ($add) { throw (".gitignore 缺少这些规则，为安全起见不上传：" + ($add -join '、')) }
+    # ---------- 1. Git ----------
+    $cmd = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $cmd) { throw '没找到 git（PATH 里没有）。请先安装 Git for Windows。' }
+    $script:GitExe = $cmd.Source
+    Say "git：$script:GitExe（$((& $script:GitExe --no-pager --version) -join ' ')）"
+    Say "仓库：$repo"
+    Say "代理：$Proxy"
 
-    if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git'))) {
-        Invoke-Git init -b main
-    }
-    Invoke-Git config core.autocrlf true
-    Invoke-Git config core.safecrlf false
-    Invoke-Git config core.quotepath false
+    # 登录：复用 Git Credential Manager。全局已配置就照用；没配置时只对这几次联网命令临时指定 manager
+    $script:CredArgs = @()
+    $helper = (Git-Out config --get credential.helper).out -join ''
+    if (-not $helper) { $script:CredArgs = @('-c', 'credential.helper=manager') }
 
-    $remotes = @(& $script:Git --no-pager remote)
+    # ---------- 2. 仓库、origin、敏感文件 ----------
+    if (-not (Test-Path -LiteralPath (Join-Path $repo '.git'))) { Git-Run init -b main }
+    $remotes = (Git-Out remote).out
     if ($remotes -contains 'origin') {
-        $origin = (& $script:Git --no-pager remote get-url origin | Out-String).Trim()
-        if ($origin -notin @($RemoteUrl, ($RemoteUrl -replace '\.git$', ''), 'git@github.com:Bling-sun/bling-paper-reading.git')) {
-            throw "origin 指向 $origin，不是 Bling-sun/bling-paper-reading，没有上传。"
-        }
+        $origin = ((Git-Out remote get-url origin).out -join '').Trim()
+        if ($origin -ne $RemoteUrl) { throw "origin 是 $origin，不是 $RemoteUrl。为安全起见没有上传，请确认后手动改：git remote set-url origin $RemoteUrl" }
     } else {
-        Invoke-Git remote add origin $RemoteUrl
+        Git-Run remote add origin $RemoteUrl
     }
+    Say "origin：$RemoteUrl"
 
-    & $script:Git --no-pager config user.name *> $null
-    if ($LASTEXITCODE -ne 0) { Invoke-Git config user.name Bling-sun }
-    & $script:Git --no-pager config user.email *> $null
-    if ($LASTEXITCODE -ne 0) { Invoke-Git config user.email Bling-sun@users.noreply.github.com }
+    $gi = if (Test-Path -LiteralPath (Join-Path $repo '.gitignore')) { Get-Content -LiteralPath (Join-Path $repo '.gitignore') -Encoding UTF8 } else { @() }
+    $missing = $MustIgnore | Where-Object { $gi -notcontains $_ }
+    if ($missing) { throw (".gitignore 缺少这些规则，为安全起见不上传：" + ($missing -join '、')) }
 
-    Invoke-Git add -A
-    # 再确认一次：API Key 所在的设置文件绝不能进仓库
-    $staged = @(& $script:Git --no-pager diff --cached --name-only)
-    if ($staged -contains 'web/config.json') {
-        & $script:Git --no-pager rm -q --cached web/config.json
-        throw 'web/config.json（含 API Key）被加进来了，已撤回，请检查 .gitignore 后重试。'
+    & $script:GitExe --no-pager -C $repo config user.name *> $null
+    if ($LASTEXITCODE -ne 0) { Git-Run config user.name Bling-sun }
+    & $script:GitExe --no-pager -C $repo config user.email *> $null
+    if ($LASTEXITCODE -ne 0) { Git-Run config user.email Bling-sun@users.noreply.github.com }
+
+    # ---------- 3. 提交本地改动（说明用 -m 直接传，不写临时文件） ----------
+    if ($Check) {
+        # 只读：不动暂存区，用 git add 的演习模式看会加进哪些文件
+        $staged = @((Git-Out add -A --dry-run).out | ForEach-Object { if ($_ -match "^(?:add|remove) '(.+)'$") { $Matches[1] } })
+    } else {
+        Git-Run add -A
+        $staged = @((Git-Out diff --cached --name-only).out | Where-Object { $_ })
     }
-    if ($Check) { Say '检查通过：git 可用、远程地址正确、不会上传 API Key。' 'Green'; exit 0 }
+    $bad = $staged | Where-Object { $_ -match $Forbidden }
+    if ($bad) { if (-not $Check) { Git-Run reset -q }; throw ("这些文件不该上传" + $(if ($Check) { '' } else { '，已撤回暂存' }) + "：" + ($bad -join '、')) }
 
-    # ---------- 提交（说明直接用 -m 传，不写临时文件：这台电脑会把 PowerShell 新建的文件加密） ----------
-    & $script:Git --no-pager diff --cached --quiet
-    $diffExit = $LASTEXITCODE
-    if ($diffExit -eq 1) {
-        & $script:Git --no-pager rev-parse -q --verify HEAD *> $null
-        if ($LASTEXITCODE -eq 0) {
+    if ($Check) {
+        Say "待提交的改动：$($staged.Count) 个文件（-Check 模式不提交）"
+    } elseif ($staged.Count -gt 0) {
+        $hasHead = (Git-Out rev-parse -q --verify HEAD).code -eq 0
+        if ($hasHead) {
             $names = ($staged | Select-Object -First 3 | ForEach-Object { Split-Path $_ -Leaf }) -join '、'
             $more = if ($staged.Count -gt 3) { " 等 $($staged.Count) 个文件" } else { '' }
             $paras = @("更新 $names$more（$(Get-Date -Format 'yyyy-MM-dd HH:mm')）")
@@ -112,32 +116,67 @@ try {
         }
         $margs = @()
         foreach ($p in $paras) { $t = Get-SafeText $p; if ($t) { $margs += '-m'; $margs += $t } }
-        Invoke-Git commit -q @margs
-        Say '✓ 已在本地提交' 'Green'
-    } elseif ($diffExit -eq 0) {
-        Say '没有新的改动需要提交。'
+        Git-Run commit -q @margs
+        Say "✓ 已在本地提交（$($staged.Count) 个文件）" 'Green'
     } else {
-        throw '检查暂存区失败。'
+        Say '没有新的改动需要提交。'
     }
 
-    # ---------- GitHub 上已有提交（比如建仓库时勾了 README）：先合进来，冲突的文件以本地为准 ----------
-    Say '连接 GitHub（第一次会弹出登录窗口）…'
-    $heads = (& $script:Git --no-pager ls-remote --heads origin | Out-String)
-    if ($LASTEXITCODE -ne 0) { throw '连不上 GitHub 仓库：检查网络 / 代理，或者登录的账号是不是 Bling-sun。' }
-    if ($heads -match 'refs/heads/main') {
-        Invoke-Git fetch -q origin main
-        & $script:Git --no-pager merge-base --is-ancestor origin/main HEAD
-        if ($LASTEXITCODE -ne 0) { Invoke-Git merge --allow-unrelated-histories -X ours --no-edit origin/main }
-    }
-
-    Invoke-Git push -u origin HEAD:main
+    # ---------- 4. 只读检查 GitHub 连接 ----------
     Say ''
-    Say "✓ 已上传：$RepoPage" 'Green'
-    Say '本机设置（API Key）、论文材料、虚拟环境都没有上传。'
+    Say '只读检查 GitHub 连接（ls-remote）…'
+    $ls = Git-Net ls-remote origin
+    if ($ls.code -ne 0) { throw "GitHub 连接失败（退出码 $($ls.code)）：确认代理软件开着（$Proxy），并且已用 Bling-sun 登录。" }
+    $remoteMain = ($ls.out | Where-Object { $_ -match "`trefs/heads/main$" } | ForEach-Object { ($_ -split "`t")[0] }) | Select-Object -First 1
+    Say ("✓ 连接正常；远程 main：" + $(if ($remoteMain) { $remoteMain.Substring(0, 7) } else { '（空仓库）' })) 'Green'
+    if ($Check) { Say '检查通过，没有提交、没有推送。' 'Green'; exit 0 }
+
+    # ---------- 5. 确认要推的内容 ----------
+    $localHead = ((Git-Out rev-parse HEAD).out -join '').Trim()
+    if (-not $localHead) { throw '本地还没有任何提交，没有可上传的内容。' }
+    if ($remoteMain -eq $localHead) { Say "远程已经是最新（$($localHead.Substring(0, 7))），不需要推送。" 'Green'; exit 0 }
+
+    if ($remoteMain) {
+        $f = Git-Net fetch -q origin main
+        if ($f.code -ne 0) { throw "拉取远程 main 失败（退出码 $($f.code)）。" }
+        & $script:GitExe --no-pager -C $repo merge-base --is-ancestor origin/main HEAD
+        if ($LASTEXITCODE -ne 0) {
+            # 不自动合并、不强推：远程有本地没有的提交，交给用户决定
+            throw ("GitHub 上的 main 有本地没有的提交（$($remoteMain.Substring(0, 7))），已停止，没有推送。`n" +
+                   "  看一下远程多了什么：git --no-pager -C `"$repo`" log --oneline HEAD..origin/main`n" +
+                   "  确认后再决定怎么合并；本脚本不会自动合并或强制推送。")
+        }
+        $range = 'origin/main..HEAD'
+    } else {
+        $range = 'HEAD'
+    }
+    $commits = @((Git-Out log --oneline $range).out)
+    $files = @((Git-Out ls-tree -r --name-only HEAD).out)
+    $leak = $files | Where-Object { $_ -match $Forbidden }
+    if ($leak) { throw ("要推送的提交里有不该上传的文件，已停止：" + ($leak -join '、')) }
+    Say ''
+    Say "将推送 $($commits.Count) 个提交（仓库里共 $($files.Count) 个文件，已确认不含 API Key / 虚拟环境 / 论文材料）："
+    $commits | Select-Object -First 10 | ForEach-Object { Say "  $_" }
+
+    # ---------- 6. 推送并核对 ----------
+    Say ''
+    Say '推送中…'
+    $push = Git-Net push -u origin HEAD:main
+    $push.out | ForEach-Object { Say "  $_" }
+    if ($push.code -ne 0) { throw "推送失败（退出码 $($push.code)），不能算上传成功。" }
+
+    $verify = Git-Net ls-remote origin refs/heads/main
+    $after = ($verify.out | ForEach-Object { ($_ -split "`t")[0] }) | Select-Object -First 1
+    if ($verify.code -ne 0 -or $after -ne $localHead) {
+        throw "推送命令返回成功，但核对远程提交没对上（远程 $after，本地 $localHead）。请到 $RepoPage 看一下。"
+    }
+    Say ''
+    Say "✓ 上传完成：远程 main = $($after.Substring(0, 7))，和本地一致。" 'Green'
+    Say "  $RepoPage"
     exit 0
 } catch {
     Say ''
-    Say ('✗ 上传失败：' + $_.Exception.Message) 'Red'
-    Say '检查 GitHub 登录、仓库权限和网络 / 代理设置。没有做强制推送。' 'Yellow'
+    Say ('✗ ' + $_.Exception.Message) 'Red'
+    Say '没有做合并、没有强制推送。' 'Yellow'
     exit 1
 }

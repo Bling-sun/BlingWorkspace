@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import context  # noqa: E402
 import llm  # noqa: E402
 import notes as notes_mod  # noqa: E402
+import history as history_mod  # noqa: E402
 
 WEB = Path(__file__).resolve().parent
 REPO = WEB.parent
@@ -244,7 +245,31 @@ def load_discussion(d):
 
 
 def save_discussion(d, msgs):
-    (d / "discussion.json").write_text(json.dumps({"messages": msgs}, ensure_ascii=False, indent=1), encoding="utf-8")
+    history_mod.write_json(d / "discussion.json", {"messages": msgs})
+
+
+def snapshot(d, reason, messages=None, draft=None):
+    return history_mod.save(d, load_discussion(d) if messages is None else messages,
+                            notes_mod.load(d), reason, draft=draft)
+
+
+@app.get("/api/papers/<slug>/history")
+def history_list(slug):
+    d = paper_dir(slug)
+    with lock(slug):
+        items = history_mod.listing(d)
+        if not items and (load_discussion(d) or any(notes_mod.load(d)["sections"].values())):
+            snapshot(d, "existing")
+            items = history_mod.listing(d)
+    return jsonify({"items": items})
+
+
+@app.get("/api/papers/<slug>/history/<sid>")
+def history_detail(slug, sid):
+    try:
+        return jsonify(history_mod.load(paper_dir(slug), sid))
+    except (OSError, ValueError):
+        abort(404, "没有这个历史版本")
 
 
 def lock(slug):
@@ -274,7 +299,7 @@ def list_papers():
         mt = max([f.stat().st_mtime for f in (d / "discussion.json", d / "notes.json", d / "meta.json") if f.exists()] or [d.stat().st_mtime])
         out.append({"slug": slug, "title": meta.get("title") or slug, "authors": meta.get("authors", [])[:4],
                     "n_authors": len(meta.get("authors", [])), "published": meta.get("published", ""),
-                    "arxiv_id": meta.get("arxiv_id"), "code": meta.get("official_code"), "figures": nfig,
+                    "arxiv_id": meta.get("arxiv_id"), "kind": meta.get("kind", "paper"), "code": meta.get("official_code"), "figures": nfig,
                     "has_latex": meta.get("has_latex"), "summary": (meta.get("summary") or "")[:400],
                     "progress": progress(d), "mtime": mt, "path": str(d)})
     out.sort(key=lambda x: -x["mtime"])
@@ -409,7 +434,7 @@ def import_paper():
         target = str(up / name)
         f.save(target)
     if not target:
-        return jsonify({"error": "给一个 arXiv 链接 / ID、PDF 链接、本地 PDF 或论文目录"}), 400
+        return jsonify({"error": "给一个网站 / arXiv / PDF 链接、本地 PDF 或资料目录"}), 400
     cmd = [sys.executable, "-u", SCRIPTS / "fetch_paper.py", target, "--root", root]
     if form.get("slug"):
         cmd += ["--slug", form["slug"]]
@@ -433,6 +458,8 @@ def add_code(slug):
 @app.post("/api/papers/<slug>/refigures")
 def refigures(slug):
     d = paper_dir(slug)
+    if load_meta(d).get("kind") == "website":
+        return jsonify({"error": "网站图片为原图；要重新抓取，请重新导入该网站或资料目录。"}), 400
     return jsonify(run_job([sys.executable, "-u", SCRIPTS / "extract_figures.py", d], roots()[0]))
 
 
@@ -503,7 +530,10 @@ def run_stream(d, slug, msgs_for_llm, on_finish):
             elif ev["type"] == "error":
                 err = ev["error"]
             yield sse(ev)
-    finally:  # 用户点了停止（连接断开）也把已经生成的部分存下来
+    except GeneratorExit:
+        on_finish("".join(acc), tools, err or "生成已中断，已保存收到的内容")
+        raise
+    else:
         yield sse(on_finish("".join(acc), tools, err))
 
 
@@ -517,6 +547,7 @@ def chat(slug):
     with lock(slug):
         msgs = load_discussion(d)
         if body.get("regenerate"):
+            snapshot(d, "before_regenerate", msgs)
             while msgs and msgs[-1]["role"] == "assistant":
                 msgs.pop()
             if not msgs:
@@ -535,6 +566,7 @@ def chat(slug):
                 m2 = load_discussion(d)
                 m2.append(reply)
                 save_discussion(d, m2)
+                snapshot(d, "analysis", m2)
         return {"type": "done", "message": reply, "user": user}
 
     def gen():
@@ -548,6 +580,7 @@ def chat(slug):
 def delete_message(slug, mid):
     d = paper_dir(slug)
     with lock(slug):
+        snapshot(d, "before_delete")
         msgs = [m for m in load_discussion(d) if m.get("id") != mid]
         save_discussion(d, msgs)
     return jsonify({"ok": True, "messages": msgs})
@@ -598,7 +631,9 @@ def put_notes(slug):
     d = paper_dir(slug)
     body = request.get_json(force=True)
     with lock(slug):
+        snapshot(d, "before_notes")
         n = notes_mod.save(d, body.get("sections", {}), load_meta(d))
+        snapshot(d, "notes")
     return jsonify(n)
 
 
@@ -634,6 +669,9 @@ def draft_notes(slug):
         llm_msgs[-2]["content"] += "\n\n" + llm_msgs.pop()["content"]
 
     def finish(text, tools, err):
+        if text.strip() or err:
+            with lock(slug):
+                snapshot(d, "draft", draft={"target": target, "text": text, "error": err})
         return {"type": "done", "text": text, "error": err, "target": target}
 
     return Response(run_stream(d, slug, llm_msgs, finish), mimetype="text/event-stream",

@@ -52,6 +52,19 @@ pip install pymupdf
 
 ## 用法
 
+### 论文主页、项目网站和文档站
+
+网页端直接粘贴完整 HTTP(S) 网址即可，适用于可公开访问的 HTML 论文 / 项目网站，不限于 RoboTwin。按实际内容识别网页和 PDF，提取正文、大纲、图片和资源链接，沿用六站讨论和 HTML 笔记导出。网页正文在左侧「PDF / 网页正文」查看。
+
+```bash
+python scripts/fetch_paper.py https://robotwin-platform.github.io/ --no-clone
+python scripts/fetch_paper.py https://example.org/project/ --max-pages 10 --max-images 30
+```
+
+默认最多抓取 5 个同站页面并尝试 20 张图片；可调整为 1–20 页、0–100 张图。输出为 `website.md`、`pages/`、`outline.md`、`meta.json`、`links.json`、`figures/`。重新导入网站目录会刷新网页快照，保留讨论和笔记。外站论文和资源保留链接，可单独导入深入分析。`--no-clone` 仅收集代码链接；否则保持原来的代码浅克隆行为。
+
+仅已抓取页面作为证据，网站没给出的训练 / 实验细节明确标为未提供。动态渲染、登录和验证码页面可能无法读取，可导出 PDF 再导入；不自动下载视频和大型资源，失败原因保存在元数据中。
+
 ```
 读一下这篇 https://arxiv.org/abs/2410.24164
 带我精读 π0，放到 ~/papers 下面

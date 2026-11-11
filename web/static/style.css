@@ -1,20 +1,25 @@
 :root{
-  --bg:#f6f4ef;--panel:#ffffff;--panel-2:#faf8f4;--ink:#1f2328;--muted:#68707a;--faint:#9aa0a6;
-  --line:#e6e2da;--line-2:#d8d3c9;--accent:#b4532a;--accent-ink:#fff;--accent-soft:#f7e9e1;
+  --bg:#edf2ef;--panel:#fafcfb;--panel-2:#f0f5f2;--ink:#233b35;--muted:#536c64;--faint:#687e76;
+  --line:#dce5df;--line-2:#bdcec4;--accent:#286453;--accent-ink:#fff;--accent-soft:#e2eee7;
   --ok:#2f7d5b;--ok-soft:#e3f2ea;--warn:#a86b00;--err:#b42318;--err-soft:#fdecea;
-  --code:#f3f1ec;--user:#f1ede5;--shadow:0 1px 2px rgba(20,20,20,.05),0 4px 16px rgba(20,20,20,.05);
+  --code:#eaf0ec;--user:#e2eee7;--shadow:0 2px 12px rgba(35,59,53,.045);
   --r:10px;--mono:"JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root{
-  --bg:#131518;--panel:#1b1e22;--panel-2:#202328;--ink:#e7e6e3;--muted:#a1a7ae;--faint:#6f767e;
-  --line:#2c3036;--line-2:#3a3f46;--accent:#e08a5f;--accent-ink:#1b1e22;--accent-soft:#3a2a22;
+:root[data-theme="dark"]{
+  --bg:#172321;--panel:#1e2e2a;--panel-2:#253732;--ink:#e3eee7;--muted:#b1c6ba;--faint:#92ab9e;
+  --line:#344a40;--line-2:#4d685a;--accent:#a0d5bb;--accent-ink:#18392a;--accent-soft:#2d483b;
   --ok:#5cc495;--ok-soft:#1d3a2d;--warn:#e0a640;--err:#f07a6e;--err-soft:#3d2220;
-  --code:#24282d;--user:#262a30;--shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.25);color-scheme:dark;
-}}
+  --code:#172822;--user:#2a4437;--shadow:0 2px 12px rgba(0,0,0,.15);color-scheme:dark;
+}
+:root[data-theme="paper"]{
+  --bg:#f1eee7;--panel:#fcfaf4;--panel-2:#f5f1e8;--ink:#38382f;--muted:#66685c;--faint:#77796c;
+  --line:#e2dfd3;--line-2:#cdc8b8;--accent:#55644a;--accent-soft:#e9ecdf;--code:#f0eee3;--user:#e9ecdf;
+}
+::selection{background:var(--accent-soft);color:var(--ink)}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--ink);font:14.5px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
 a{color:var(--accent)}
 button{font:inherit;color:inherit}
 input,textarea,select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line-2);border-radius:8px;padding:8px 10px;outline:none;width:100%}
@@ -183,6 +188,27 @@ button.chip{cursor:pointer}button.chip:hover{border-color:var(--accent);color:va
 .inbox .bar{display:flex;align-items:center;gap:8px}
 
 /* 笔记 */
+.msgs{position:relative}
+.question-index{flex:none;min-height:0;border-bottom:1px solid var(--line);background:var(--panel-2)}
+.question-index summary{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;list-style:none}
+.question-index summary::-webkit-details-marker{display:none}
+.question-index summary::before{content:'▸';color:var(--muted)}
+.question-index[open] summary::before{content:'▾'}
+.question-index summary strong{flex:1;font-size:14px}
+.question-index-body{padding:0 12px 10px}
+.question-index input{font-size:13px;padding:6px 9px;margin-bottom:8px}
+.question-index nav{overflow:auto;max-height:clamp(120px,25vh,300px);scrollbar-gutter:stable}
+.question-index ol{margin:0;padding:0;list-style:none}
+.question-link{display:flex;gap:9px;width:100%;text-align:left;border:1px solid transparent;border-radius:8px;background:transparent;padding:8px;cursor:pointer;color:var(--ink)}
+.question-link:hover,.question-link[aria-current]{background:var(--accent-soft);border-color:var(--line-2)}
+.question-link:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.question-number{flex:none;font:12px/1.8 var(--mono);color:var(--accent);min-width:20px;text-align:center}
+.question-copy{min-width:0;display:flex;flex-direction:column;gap:3px}
+.question-title{font-size:13.5px;line-height:1.65;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.question-meta{font-size:11.5px;color:var(--muted)}
+.question-empty{padding:10px 8px}
+.msg.question-focus .bubble{outline:2px solid var(--accent);outline-offset:3px}
+.msg:focus{outline:none}
 .notes-head{flex:none;display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
 .notes-head h3{margin:0;font-size:15px;flex:1}
 .save-state{font-size:12px;color:var(--faint)}
@@ -216,6 +242,32 @@ button.chip{cursor:pointer}button.chip:hover{border-color:var(--accent);color:va
 
 /* 移动端：三栏改成底部切换 */
 .mtabs{display:none}
+.theme-select{width:auto;max-width:155px;padding:5px 8px;font-size:13px;cursor:pointer}
+.md{line-height:1.9;letter-spacing:.01em}
+.md p{margin:12px 0}
+.msg.assistant .bubble{padding:18px 20px;box-shadow:var(--shadow)}
+.msgs{padding:20px;gap:20px}
+.msg .mhead,.save-state{color:var(--muted)}
+.pane.center .md{font-size:15.5px}
+.history-modal{width:min(1320px,96vw);height:min(900px,92vh)}
+.history-modal .modal-body{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.history-modal .modal-body>p{margin:0 0 12px}
+.history-controls{display:grid;grid-template-columns:1fr 220px;gap:12px;margin-bottom:12px}
+.history-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;min-height:0;flex:1}
+.history-side{min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.history-side .field{margin-bottom:8px}
+.history-body{overflow:auto;min-height:0;padding:18px 20px;border:1px solid var(--line);border-radius:12px;margin-top:12px;background:var(--panel-2);font-size:15px}
+.history-message{padding:0 0 20px;margin:0 0 20px;border-bottom:1px solid var(--line)}
+.history-message:last-child{border:0;margin:0;padding-bottom:0}
+.history-role{font-size:12px;font-weight:600;color:var(--accent);margin-bottom:12px}
+@media(max-width:640px){
+  .history-grid{display:flex;flex-direction:column;overflow:auto;flex:1}
+  .history-side{overflow:visible;flex:none;max-height:65vh}
+  .history-body{min-height:140px}
+  .history-controls{grid-template-columns:1fr}
+  .brand>span:last-child{display:none}
+  .topbar{gap:8px;padding:0 10px}.top-actions{gap:4px}.theme-select{max-width:125px}
+}
 @media (max-width:980px){
   .panes{display:block;position:relative}
   .split{display:none}

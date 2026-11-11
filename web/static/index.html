@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>bling 精读工作台</title>
+<script>try{document.documentElement.dataset.theme=JSON.parse(localStorage.getItem('bling:theme'))||'sage'}catch{document.documentElement.dataset.theme='sage'}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b4532a'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 5 5v11H14a5 5 0 0 1-5-5z' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -12,6 +13,7 @@
   <a class="brand" href="#/"><span class="logo">读</span><span>bling 精读工作台</span></a>
   <nav class="crumbs" id="crumbs"></nav>
   <div class="top-actions">
+    <select id="themeSelect" class="theme-select" aria-label="阅读配色"><option value="sage">浅绿 · 阅读</option><option value="paper">米白 · 纸张</option><option value="dark">深绿 · 夜间</option></select>
     <button class="chip model-chip" id="modelChip" title="模型设置"></button>
     <button class="btn ghost" id="settingsBtn">设置</button>
   </div>

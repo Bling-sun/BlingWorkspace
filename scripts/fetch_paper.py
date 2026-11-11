@@ -655,9 +655,32 @@ def main():
     ap.add_argument("--no-clone", action="store_true", help="只找代码链接，不克隆")
     ap.add_argument("--code", help="官方代码仓库地址（论文里没写、自己搜到的时候用；会克隆并记进 meta.json）")
     ap.add_argument("--dpi", type=int, default=220, help="裁图分辨率")
+    ap.add_argument("--website", action="store_true", help="强制按网站导入（包括 arXiv HTML 页）")
+    ap.add_argument("--max-pages", type=int, default=5, help="网站最多抓取几页（1–20，同站链接）")
+    ap.add_argument("--max-images", type=int, default=20, help="网站最多尝试下载几张图片（0–100）")
     args = ap.parse_args()
+    if not 1 <= args.max_pages <= 20 or not 0 <= args.max_images <= 100:
+        ap.error("max-pages 必须为 1–20，max-images 必须为 0–100")
 
     t = parse_target(args.target)
+    from fetch_website import download, fetch_website
+    if t["kind"] == "dir" and (t["path"] / "meta.json").exists():
+        previous = json.loads((t["path"] / "meta.json").read_text(encoding="utf-8"))
+        if previous.get("kind") == "website":
+            try:
+                fetch_website(previous["source_url"], args, dest=t["path"])
+            except Exception as exc:
+                sys.exit(f"  ✗ 网站导入失败：{exc}")
+            return
+    downloaded = None
+    if t["kind"] == "url-pdf" or args.website:
+        try:
+            downloaded = download(args.target, limit=100_000_000)
+            if args.website or not downloaded[0].startswith(b"%PDF"):
+                fetch_website(args.target, args, initial=downloaded)
+                return
+        except Exception as exc:
+            sys.exit(f"  ✗ 网站 / PDF 导入失败：{exc}")
     aid = t.get("arxiv")
     dest = t["path"] if t["kind"] == "dir" else None
     if dest and not aid:
@@ -670,7 +693,7 @@ def main():
     tmp_pdf = None
     if t["kind"] in ("url-pdf", "local-pdf"):
         if t["kind"] == "url-pdf":
-            data, _ = http_get(t["url"], timeout=180)
+            data = downloaded[0]
             if data[:4] != b"%PDF":
                 sys.exit("  ✗ 这个链接下下来不是 PDF（可能是网页）。给 PDF 直链，或者先手动下载再传本地路径。")
             import tempfile

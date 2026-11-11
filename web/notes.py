@@ -119,6 +119,10 @@ def md_to_html(text):
 
 def meta_line(meta):
     bits = []
+    if meta.get("kind") == "website" and meta.get("source_url"):
+        source = html.escape(meta["source_url"], quote=True)
+        bits.append(f'网站：<a href="{source}">{source}</a>')
+        bits.append("抓取于 " + html.escape(str(meta.get("fetched", ""))[:10]))
     aid = meta.get("arxiv_id")
     if aid:
         bits.append(f'<a href="https://arxiv.org/abs/{html.escape(aid)}">arXiv {html.escape(aid)}</a>')

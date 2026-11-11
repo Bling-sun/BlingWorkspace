@@ -1,5 +1,7 @@
 # bling-paper-reading
 
+Public paper/project websites and documentation sites are also supported. Paste a complete HTTP(S) URL into the web importer, or run `python scripts/fetch_paper.py https://nerfies.github.io/ --no-clone`. HTML and PDF are detected by content. Website materials include `website.md`, page snapshots, an outline, source URLs, images, and resource links, and use the existing six-station discussion and HTML notes workflow. By default the importer reads up to 5 same-host pages and attempts 20 images; customize with `--max-pages 1..20` and `--max-images 0..100`. JavaScript-only or login pages may require exporting a PDF first. Linked external papers are discovered resources, not automatically read evidence.
+
 [简体中文](README.md) | **English**
 
 Let an AI agent walk you through a paper. It won't stop at a summary. It reads the paper first, the way

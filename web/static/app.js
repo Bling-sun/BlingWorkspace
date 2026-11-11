@@ -55,6 +55,7 @@ const S = {
   attachments: [], ctrl: null, streamText: '', streamTools: [],
   notes: null, editing: {}, collapsed: {}, drafts: {}, saveTimer: null, saveState: '',
   filePath: 'code', file: null, sel: null, importMode: 'link', job: null,
+  questionSearch: '', questionFrame: null,
 };
 
 /* ---------------- 小工具 ---------------- */
@@ -65,6 +66,9 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('bling:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('bling:' + k, JSON.stringify(v)); } catch { /* 无痕模式等 */ } },
 };
+$('#themeSelect').value = ['sage', 'paper', 'dark'].includes(store.get('theme')) ? store.get('theme') : 'sage';
+document.documentElement.dataset.theme = $('#themeSelect').value;
+$('#themeSelect').onchange = e => { document.documentElement.dataset.theme = e.target.value; store.set('theme', e.target.value); };
 function toast(msg, ms = 2600) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
@@ -128,8 +132,67 @@ function openModal(title, html, onMount) {
   $('#modalTitle').textContent = title; $('#modalBody').innerHTML = html; $('#modal').hidden = false;
   if (onMount) onMount($('#modalBody'));
 }
-function closeModal() { $('#modal').hidden = true; $('#modalBody').innerHTML = ''; }
+function closeModal() { $('#modal').hidden = true; $('#modalBody').innerHTML = ''; $('#modal .modal-card').classList.remove('history-modal'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal' || e.target.closest('[data-close]')) closeModal(); });
+
+/* ---------------- 历史与复习 ---------------- */
+const HISTORY_REASONS = { analysis: '分析记录', existing: '已有记录', before_regenerate: '重新生成前', before_delete: '删除前备份', notes: '笔记保存', before_notes: '笔记修改前', draft: '笔记草稿' };
+async function openHistory() {
+  const slug = S.slug;
+  try {
+    const r = await api(`/api/papers/${encodeURIComponent(slug)}/history`);
+    openModal('分析历史 · 回看与对比', `
+      <p class="muted small">每次分析及笔记修改都会保留本地版本。重新生成、删除消息前的内容也可在这里回看；历史版本只读。</p>
+      <div class="history-controls"><input id="historySearch" aria-label="搜索历史" placeholder="搜索提问或记录类型…">
+      <select id="historyMode" aria-label="查看内容"><option value="answer">本次分析 / 回答</option><option value="discussion">完整讨论</option><option value="notes">精读笔记</option><option value="draft">笔记草稿</option></select></div>
+      <p id="historyCount" class="small muted"></p>
+      <div class="history-grid">${['a', 'b'].map((side, i) => `<section class="history-side"><label class="field"><span>${i ? '版本 B · 对比' : '版本 A · 回看'}</span><select id="history-${side}" aria-label="版本 ${side.toUpperCase()}"></select></label><div id="history-meta-${side}" class="small muted"></div><article id="history-body-${side}" class="md history-body"></article></section>`).join('')}</div>`, body => {
+        $('#modal .modal-card').classList.add('history-modal');
+        const cache = new Map();
+        let generation = 0;
+        const show = async () => {
+          const current = ++generation;
+          await Promise.all(['a', 'b'].map(async side => {
+            const id = $(`#history-${side}`, body).value;
+            const pane = $(`#history-body-${side}`, body);
+            const meta = $(`#history-meta-${side}`, body);
+            if (!id) { pane.innerHTML = '<p class="muted">还没有匹配的历史记录。分析完成后会自动出现在这里。</p>'; meta.textContent = ''; return; }
+            pane.textContent = '正在读取…';
+            try {
+              if (!cache.has(id)) cache.set(id, await api(`/api/papers/${encodeURIComponent(slug)}/history/${encodeURIComponent(id)}`));
+              if (generation !== current || !body.isConnected) return;
+              const version = cache.get(id); const mode = $('#historyMode', body).value;
+              meta.textContent = `${new Date(version.created).toLocaleString()} · ${HISTORY_REASONS[version.reason] || version.reason} · ${version.model || '未记录模型'} · ${version.messages.length} 条消息`;
+              if (mode === 'notes') {
+                pane.innerHTML = (S.paper.sections || []).map(([key, title]) => version.notes?.sections?.[key] ? `<h3>${esc(title)}</h3>${md(version.notes.sections[key], slug)}` : '').join('') || '<p class="muted">这一版还没有整理笔记。</p>';
+              } else if (mode === 'draft') {
+                pane.innerHTML = version.draft ? md(version.draft.text, slug) + (version.draft.error ? `<p class="err">${esc(version.draft.error)}</p>` : '') : '<p class="muted">这一版没有笔记草稿。</p>';
+              } else {
+                const messages = mode === 'answer' ? version.messages.slice(-2) : version.messages;
+                pane.innerHTML = messages.map(m => `<section class="history-message"><div class="history-role">${m.role === 'user' ? '提问' : '分析'} · ${esc(ST[m.station]?.label || '讨论')} · ${esc(fmtTime(m.ts))}</div>${md(m.content, slug)}${m.error ? `<p class="err">${esc(m.error)}</p>` : ''}</section>`).join('') || '<p class="muted">没有讨论内容。</p>';
+              }
+            } catch (e) { pane.textContent = '读取失败：' + e.message; }
+          }));
+        };
+        const fill = () => {
+          const q = $('#historySearch', body).value.trim().toLowerCase();
+          const items = r.items.filter(item => !q || `${item.title} ${HISTORY_REASONS[item.reason] || item.reason}`.toLowerCase().includes(q));
+          $('#historyCount', body).textContent = `共保留 ${r.items.length} 个版本${q ? `，匹配 ${items.length} 个` : ''} · 保存在资料目录的 history 文件夹`;
+          ['a', 'b'].forEach((side, index) => {
+            const select = $(`#history-${side}`, body); const previous = select.value;
+            select.innerHTML = items.map(item => `<option value="${esc(item.id)}">${esc(fmtTime(item.created))} · ${esc(HISTORY_REASONS[item.reason] || item.reason)} · ${esc(item.title)}</option>`).join('');
+            if (items.some(item => item.id === previous)) select.value = previous;
+            else if (items.length) select.value = items[Math.min(index, items.length - 1)].id;
+            select.onchange = show;
+          });
+          show();
+        };
+        $('#historySearch', body).oninput = fill;
+        $('#historyMode', body).onchange = show;
+        fill();
+      });
+  } catch (e) { toast('读取历史失败：' + e.message); }
+}
 
 /* ---------------- 设置 ---------------- */
 async function loadSettings() {
@@ -221,7 +284,8 @@ async function openSettings() {
 }
 
 /* ---------------- 路由 ---------------- */
-function route() {
+async function route() {
+  if (S.slug && (S.saveTimer || ['未保存', '保存失败'].includes(S.saveState))) await flushSave();
   const m = location.hash.match(/^#\/p\/(.+)$/);
   if (S.ctrl) { S.ctrl.abort(); S.ctrl = null; }
   if (m) openPaper(decodeURIComponent(m[1])); else showLibrary();
@@ -252,12 +316,12 @@ function renderImporter() {
   const el = $('#importer'); if (!el) return;
   const mode = S.importMode;
   const main = {
-    link: `<input type="text" id="impTarget" placeholder="arXiv 链接或 ID（如 2410.24164）、alphaxiv / HF Papers 链接、PDF 直链">`,
+    link: `<input type="text" id="impTarget" placeholder="网站网址（如 robotwin-platform.github.io）、arXiv 链接或 ID、PDF 直链">`,
     pdf: `<label class="dropzone" id="drop"><input type="file" id="impFile" accept="application/pdf" hidden><span id="dropText">把 PDF 拖到这里，或点击选择文件</span></label>`,
     dir: `<input type="text" id="impTarget" placeholder="本机上已有的论文目录（完整路径），只补缺的材料">`,
   }[mode];
-  el.innerHTML = `<h2>导入论文</h2>
-    <p class="lead">调用 <code>scripts/fetch_paper.py</code>：拉 PDF、LaTeX 源码、每张图裁好的 PNG、大纲和官方代码（5–30 秒）。</p>
+  el.innerHTML = `<h2>导入论文 / 网站资料</h2>
+    <p class="lead">粘贴完整网址即可导入正文、图片和资源链接；网站最多抓取 5 个同站页面。论文支持 PDF、LaTeX 和图表。</p>
     <div class="seg">${[['link', 'arXiv / 链接'], ['pdf', '上传 PDF'], ['dir', '已有目录']].map(([k, v]) => `<button data-mode="${k}" class="${k === mode ? 'on' : ''}">${v}</button>`).join('')}</div>
     <div class="imp-main">${main}<button class="btn primary" id="impGo">导入</button></div>
     <div class="imp-more">
@@ -358,7 +422,7 @@ function renderCards() {
 async function openPaper(slug) {
   const app = $('#app');
   if (S.slug !== slug) {
-    Object.assign(S, { slug, attachments: [], editing: {}, drafts: {}, filePath: 'code', file: null, sel: null, leftTab: store.get('leftTab', 'pdf') });
+    Object.assign(S, { slug, attachments: [], editing: {}, drafts: {}, saveState: '', questionSearch: '', filePath: 'code', file: null, sel: null, leftTab: store.get('leftTab', 'pdf') });
   }
   app.innerHTML = '<div class="welcome"><span class="spinner"></span></div>';
   try { S.paper = await api('/api/papers/' + encodeURIComponent(slug)); }
@@ -375,6 +439,8 @@ async function openPaper(slug) {
       <a class="btn ghost sm" href="#/" title="回文献库">←</a>
       <div class="grow"><h2>${esc(m.title || slug)}</h2>
         <div class="sub">${[esc(authorsLine(m, 4)), m.published ? esc(m.published.slice(0, 10)) : '', m.arxiv_id ? `<a href="https://arxiv.org/abs/${esc(m.arxiv_id)}" target="_blank">arXiv ${esc(m.arxiv_id)}</a>` : '', m.official_code ? `<a href="${esc(m.official_code)}" target="_blank">代码</a>` : ''].filter(Boolean).join(' · ')}</div></div>
+      <span class="small muted hide-m">讨论自动保存到本机</span>
+      <button class="btn sm" data-act="history">历史 / 对比</button>
       <button class="btn sm hide-m" data-act="preview">预览笔记</button>
       <button class="btn sm primary" data-act="export">导出 HTML</button>
     </div>
@@ -385,7 +451,7 @@ async function openPaper(slug) {
       <div class="split" data-split="c3"></div>
       <section class="pane right" id="paneRight"></section>
     </div>
-    <nav class="mtabs">${[['left', '材料'], ['center', '讨论'], ['right', '笔记']].map(([k, v]) => `<button data-m="${k}">${v}</button>`).join('')}</nav>
+    <nav class="mtabs">${[['left', '材料'], ['center', '讨论'], ['right', '问题 / 笔记']].map(([k, v]) => `<button data-m="${k}">${v}</button>`).join('')}</nav>
   </div>`;
   $$('.ws-head [data-act]').forEach(b => b.onclick = () => headAction(b.dataset.act));
   $$('.mtabs button').forEach(b => b.onclick = () => showMobile(b.dataset.m));
@@ -424,6 +490,7 @@ function initSplits() {
 
 async function headAction(act) {
   const slug = encodeURIComponent(S.slug);
+  if (act === 'history') { await flushSave(); return openHistory(); }
   if (act === 'preview') { await flushSave(); window.open(`/api/papers/${slug}/notes/view`, '_blank'); }
   if (act === 'export') {
     await flushSave();
@@ -444,7 +511,7 @@ async function headAction(act) {
 }
 
 /* ---------------- 左栏：材料 ---------------- */
-const LEFT_TABS = [['pdf', 'PDF'], ['figs', '图表'], ['outline', '大纲'], ['files', '代码 / 文件'], ['info', '信息']];
+const LEFT_TABS = [['pdf', 'PDF / 网页正文'], ['figs', '图表'], ['outline', '大纲'], ['files', '代码 / 文件'], ['info', '信息']];
 function renderLeft() {
   const el = $('#paneLeft'); if (!el) return; const P = S.paper;
   const n = (P.figures || []).filter(f => f.file).length;
@@ -460,7 +527,14 @@ function switchLeft() {
   $$('#paneLeft .pane-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.leftTab));
   const pdf = S.leftTab === 'pdf';
   $('#pdfFrame').hidden = !pdf; const o = $('#leftOther'); o.hidden = pdf;
-  if (pdf) { if (!S.paper.has_pdf) { $('#pdfFrame').hidden = true; o.hidden = false; o.innerHTML = '<div class="pad muted">没有 paper.pdf</div>'; } return; }
+  if (pdf) {
+    if (S.paper.meta.kind === 'website') {
+      $('#pdfFrame').hidden = true; o.hidden = false; renderWebsite(o);
+    } else if (!S.paper.has_pdf) {
+      $('#pdfFrame').hidden = true; o.hidden = false; o.innerHTML = '<div class="pad muted">没有 paper.pdf</div>';
+    }
+    return;
+  }
   ({ figs: renderFigs, outline: renderOutline, files: renderFiles, info: renderInfo })[S.leftTab](o);
 }
 function pdfPage(page) {
@@ -469,9 +543,26 @@ function pdfPage(page) {
 }
 
 function figLabel(f) { return (f.kind === 'table' ? '表 ' : '图 ') + f.num; }
+async function renderWebsite(o) {
+  const slug = S.slug;
+  o.innerHTML = '<div class="pad muted">正在读取网页正文…</div>';
+  try {
+    const r = await api(`/api/papers/${encodeURIComponent(slug)}/text?path=website.md`);
+    if (S.slug !== slug || S.leftTab !== 'pdf') return;
+    // Escape first: imported HTML and Markdown never execute in this view.
+    o.innerHTML = `<div class="pad"><p class="muted">网站正文快照 · ${(S.paper.meta.sources || []).length} 页 · 资源链接见「信息」</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere;font:inherit">${esc(r.text)}</pre></div>`;
+  } catch (e) { o.innerHTML = `<div class="pad muted">${esc(e.message)}</div>`; }
+}
 function renderFigs(o) {
   const figs = S.paper.figures || [];
-  if (!figs.length) { o.innerHTML = `<div class="pad muted">没有裁出图表。<button class="btn sm" data-act="refig">重新裁图</button></div>`; bindRefig(o); return; }
+  if (!figs.length) {
+    if (S.paper.meta.kind === 'website') {
+      o.innerHTML = '<div class="pad muted">没有可显示的网页图片。下载限制及失败原因见「信息」；可重新导入网站刷新材料。</div>';
+    } else {
+      o.innerHTML = `<div class="pad muted">没有裁出图表。<button class="btn sm" data-act="refig">重新裁图</button></div>`; bindRefig(o);
+    }
+    return;
+  }
   const fileUrl = f => `/files/${encodeURIComponent(S.slug)}/${f.file}`;
   o.innerHTML = `<div class="row pad" style="padding-bottom:0"><span class="muted small grow">点图放大；「问 AI」把图附到下一条提问，「进笔记」插进当前站的笔记。</span>
       <button class="btn sm" data-act="contact">总览拼图</button><button class="btn sm" data-act="refig">重新裁图</button></div>
@@ -493,6 +584,10 @@ function renderFigs(o) {
   });
   $('[data-act=contact]', o).onclick = () => lightbox(`/files/${encodeURIComponent(S.slug)}/${S.paper.fig_dir}/_contact.png`, '所有裁剪的总览');
   bindRefig(o);
+  if (S.paper.meta.kind === 'website') {
+    $$('[data-act=contact], [data-act=refig], [data-fa=pdf], .tag.warn', o).forEach(b => b.hidden = true);
+    $$('.fig .info .row .muted', o).forEach(b => b.textContent = '网页原图');
+  }
 }
 function bindRefig(o) {
   const b = $('[data-act=refig]', o); if (!b) return;
@@ -582,6 +677,8 @@ function renderInfo(o) {
     ${m.comment || m.journal_ref ? `<p class="muted small">${esc([m.journal_ref, m.comment].filter(Boolean).join(' · '))}</p>` : ''}
     <h4>代码</h4><p>${m.official_code ? `<a href="${esc(m.official_code)}" target="_blank">${esc(m.official_code)}</a> <span class="muted small">（来自${esc(m.official_code_from || '')}）</span><br><span class="muted small">本地：${esc(S.paper.code_root || '没克隆')}</span>` : '<span class="muted">没找到官方代码，可以在「代码 / 文件」里补。</span>'}</p>
     ${linkList.length ? `<h4>链接</h4><ul>${linkList.map(([k, u]) => `<li><span class="tag">${esc(k)}</span> <a href="${esc(u)}" target="_blank">${esc(u)}</a></li>`).join('')}</ul>` : ''}
+    ${(m.sources || []).length ? `<h4>已抓取页面</h4><ul>${m.sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title)}</a></li>`).join('')}</ul>` : ''}
+    ${(m.warnings || []).length ? `<h4>导入记录</h4><ul>${m.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
     <h4>材料目录</h4><p><code style="word-break:break-all">${esc(S.paper.path)}</code></p></div>`;
 }
 
@@ -609,8 +706,14 @@ function renderCenter() {
       <div class="inbox"><div class="att" id="attBox"></div>
         <textarea id="input" rows="2" placeholder="问任何问题，或复述你的理解让它判对错…  （Enter 发送，Shift+Enter 换行）"></textarea>
         <div class="bar"><div class="quick">${QUICK.map(([l], i) => `<button class="chip" data-q="${i}">${l}</button>`).join('')}</div><span class="grow"></span>
-          <button class="btn primary" id="sendBtn">发送</button></div></div></div>`;
+          <button class="btn sm" id="questionIndexBtn">问题索引</button><button class="btn primary" id="sendBtn">发送</button></div></div></div>`;
   renderStbar(); renderMsgs(); renderNext(); renderAtt();
+  $('#msgs').addEventListener('scroll', queueQuestionSync, { passive: true });
+  $('#questionIndexBtn').onclick = () => {
+    showMobile('right');
+    $('#questionIndex').open = true;
+    $('#questionSearch').focus({ preventScroll: true });
+  };
   const input = $('#input');
   input.oninput = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 220) + 'px'; };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
@@ -649,7 +752,7 @@ function msgHtml(m, i, n) {
   const acts = m.role === 'user'
     ? `<button class="icon-btn" data-ma="del" title="删除">删除</button>`
     : `<button class="icon-btn" data-ma="copy">复制</button><button class="icon-btn" data-ma="qa" title="把这组问答压成一条记进笔记「问答」">记入问答</button>${last ? '<button class="icon-btn" data-ma="regen">重新生成</button>' : ''}<button class="icon-btn" data-ma="del">删除</button>`;
-  return `<div class="msg ${m.role} ${last ? 'last' : ''}" data-id="${esc(m.id)}" data-st="${esc(m.station)}">
+  return `<div class="msg ${m.role} ${last ? 'last' : ''}" tabindex="-1" data-id="${esc(m.id)}" data-st="${esc(m.station)}">
     <div class="mhead">${m.role === 'user' ? '' : '<strong>AI</strong>'}<span>${esc(st)}</span><span>${fmtTime(m.ts)}</span></div>${body}<div class="macts">${acts}</div></div>`;
 }
 function renderMsgs(keepScroll) {
@@ -661,12 +764,58 @@ function renderMsgs(keepScroll) {
       ${mock ? '<p class="err" style="text-align:left">现在是演示模式，回复是占位的。到右上角「设置」里填上模型和 API Key 再开始。</p>' : ''}
       <button class="btn primary" data-start>▶ 开始：基本情况 + ① 动机</button></div>`;
     $('[data-start]', box).onclick = () => { setStation('0', false); send(ST['0'].prompt, 'station'); };
+    renderQuestionIndex();
     return;
   }
+  const previousScroll = box.scrollTop;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
   box.innerHTML = msgs.map((m, i) => msgHtml(m, i, msgs.length)).join('');
   bindMsgs(box);
-  if (!keepScroll || atBottom) box.scrollTop = box.scrollHeight;
+  box.scrollTop = !keepScroll || atBottom ? box.scrollHeight : previousScroll;
+  renderQuestionIndex();
+}
+
+/* 侧栏索引来自已保存的用户消息，重开资料时自动恢复。 */
+function renderQuestionIndex() {
+  const list = $('#questionList'); if (!list) return;
+  const questions = (S.paper?.messages || []).filter(m => m.role === 'user');
+  const query = S.questionSearch.trim().toLowerCase();
+  const entries = questions.map((m, i) => ({ m, number: i + 1,
+    title: (m.content || ((m.images || []).length ? '关于附图的提问' : '关于所附资料的提问')).replace(/\s+/g, ' ').trim() }));
+  const shown = entries.filter(({ m, title }) => !query || `${title} ${ST[m.station]?.label || ''}`.toLowerCase().includes(query));
+  $('#questionCount').textContent = query ? `${shown.length} / ${questions.length}` : questions.length;
+  list.innerHTML = shown.map(({ m, number, title }) => `<li><button class="question-link" data-question="${esc(m.id)}" title="${esc(title)}"><span class="question-number">${number}</span><span class="question-copy"><span class="question-title">${esc(title)}</span><span class="question-meta">${esc(ST[m.station]?.label || '讨论')} · ${esc(fmtTime(m.ts))}</span></span></button></li>`).join('')
+    || `<li class="small muted question-empty">${questions.length ? '没有匹配的问题。' : '提问后会自动生成索引，点击即可回看。'}</li>`;
+  $$('[data-question]', list).forEach(button => button.onclick = () => jumpToQuestion(button.dataset.question));
+  queueQuestionSync();
+}
+function jumpToQuestion(id) {
+  const box = $('#msgs');
+  const target = $$('.msg.user', box).find(el => el.dataset.id === id);
+  if (!target) return toast('该问题已不在当前讨论中，可在历史中回看。');
+  showMobile('center');
+  if (ST[target.dataset.st]) setStation(target.dataset.st, false);
+  $$('.question-focus', box).forEach(el => el.classList.remove('question-focus'));
+  target.classList.add('question-focus');
+  target.focus({ preventScroll: true });
+  box.scrollTo({ top: Math.max(0, target.offsetTop - 12), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  markCurrentQuestion(id);
+}
+function markCurrentQuestion(id) {
+  $$('#questionList [data-question]').forEach(button => {
+    if (button.dataset.question === id) button.setAttribute('aria-current', 'true');
+    else button.removeAttribute('aria-current');
+  });
+}
+function queueQuestionSync() {
+  if (S.questionFrame) cancelAnimationFrame(S.questionFrame);
+  S.questionFrame = requestAnimationFrame(() => {
+    S.questionFrame = null;
+    const box = $('#msgs'); if (!box || !box.clientHeight) return;
+    const questions = $$('.msg.user', box);
+    const current = questions.filter(el => el.offsetTop <= box.scrollTop + 40).pop() || questions[0];
+    if (current) markCurrentQuestion(current.dataset.id);
+  });
 }
 function bindMsgs(box) {
   $$('.md img, [data-zoom]', box).forEach(img => img.onclick = () => lightbox(img.src, img.alt));
@@ -746,7 +895,7 @@ async function send(text, kind = 'chat', regenerate = false) {
       if (live.id === 'live') {  // 被中断：服务器端会存已生成的部分，这里刷新一次拿到正式 id
         try { const p = await api('/api/papers/' + encodeURIComponent(S.slug)); S.paper.messages = p.messages; } catch { /* */ }
       }
-      renderMsgs(); renderStbar(); renderNext();
+      renderMsgs(true); renderStbar(); renderNext();
     }
   }
 }
@@ -756,7 +905,10 @@ function sectionTitle(key) { return (S.paper.sections.find(([k]) => k === key) |
 function renderNotes() {
   const el = $('#paneRight');
   const imported = S.notes.imported_from ? `<div class="pad small muted" style="padding-bottom:0">已从 ${esc(S.notes.imported_from)} 读入笔记内容。</div>` : '';
-  el.innerHTML = `<div class="notes-head"><h3>精读笔记</h3><span class="save-state" id="saveState">${esc(S.saveState)}</span>
+  el.innerHTML = `<details class="question-index" id="questionIndex" ${store.get('questionIndexOpen', true) ? 'open' : ''}>
+      <summary><strong>问题索引</strong><span class="chip" id="questionCount">0</span><span class="muted small">点击跳转</span></summary>
+      <div class="question-index-body"><input type="search" id="questionSearch" aria-label="搜索问题索引" placeholder="搜索问题或站点…" value="${esc(S.questionSearch)}"><nav aria-label="讨论问题索引"><ol id="questionList"></ol></nav></div>
+    </details><div class="notes-head"><h3>精读笔记</h3><span class="save-state" id="saveState">${esc(S.saveState)}</span>
       <button class="btn sm ghost" data-act="collapse" title="全部折叠 / 展开">⇅</button>
       <button class="btn sm" data-act="preview">预览</button></div>${imported}
     <div class="pane-body"><div class="nsecs" id="nsecs">${S.paper.sections.map(([k]) => secHtml(k)).join('')}</div></div>`;
@@ -766,6 +918,9 @@ function renderNotes() {
     S.paper.sections.forEach(([k]) => { S.collapsed[k] = !allC; }); renderNotes();
   };
   bindSecs(el);
+  $('#questionIndex').ontoggle = e => store.set('questionIndexOpen', e.target.open);
+  $('#questionSearch').oninput = e => { S.questionSearch = e.target.value; renderQuestionIndex(); };
+  renderQuestionIndex();
 }
 function secHtml(key) {
   const text = S.notes.sections[key] || ''; const ed = S.editing[key]; const d = S.drafts[key];
@@ -826,7 +981,7 @@ function scheduleSave(ms = 900) {
   S.saveTimer = setTimeout(flushSave, ms);
 }
 async function flushSave() {
-  if (!S.saveTimer && S.saveState !== '未保存') return;
+  if (!S.saveTimer && !['未保存', '保存失败'].includes(S.saveState)) return;
   clearTimeout(S.saveTimer); S.saveTimer = null; setSaveState('保存中…');
   try {
     const r = await api(`/api/papers/${encodeURIComponent(S.slug)}/notes`, { method: 'PUT', json: { sections: S.notes.sections } });

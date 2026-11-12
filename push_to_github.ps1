@@ -1,4 +1,4 @@
-﻿# 把本目录（Bling-Workspace）推到 https://github.com/Bling-sun/bling-paper-reading（GitHub 上改名后同步改下面的 $RemoteUrl / $RepoPage）
+﻿# 把本目录（Bling-Workspace）推到 https://github.com/Bling-sun/BlingWorkspace
 # 由 push_to_github.bat 调用（用本机 Codex 自带的 PowerShell 7）。
 # 优先使用 Git 的 ucrt64 / mingw64 本体，避免 cmd 启动器及凭据回调再次触发启动错误。
 # 网络请求一律显式走代理 http://127.0.0.1:7897；
@@ -16,8 +16,8 @@ $PSNativeCommandUseErrorActionPreference = $false   # git 的退出码由下面�
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
 $repo = $PSScriptRoot                                 # 即 D:\CODE\Bling-Workspace
-$RemoteUrl = 'https://github.com/Bling-sun/bling-paper-reading.git'
-$RepoPage = 'https://github.com/Bling-sun/bling-paper-reading'
+$RemoteUrl = 'https://github.com/Bling-sun/BlingWorkspace.git'
+$RepoPage = 'https://github.com/Bling-sun/BlingWorkspace'
 
 # 绝不能上传的东西：.gitignore 必须有这些规则，推送前还会再查一遍要推的提交里有没有
 $MustIgnore = @('web/config.json', 'web/_uploads/', '.venv/', 'papers/', 'repos/', 'profile.md', '__pycache__/')
@@ -128,8 +128,8 @@ try {
             if (Get-SafeText $Message) { $paras = @((Get-SafeText $Message)) + $paras }
         } else {
             $paras = @(
-                'bling-paper-reading：网页端精读工作台 + HTML 精读笔记',
-                "- web/：导入 → PDF / 图表 / 大纲 / 代码阅读 → 按 SKILL.md 六站讨论 → 分节精读笔记 → 导出单文件 HTML`n- 精读笔记改为 HTML（references/notes-template.html），SKILL.md / README 同步`n- 模型接口：本机 Claude Code / 本机 Codex（会员额度）/ DeepSeek / Claude API / OpenAI 兼容`n- 项目更名为 bling-paper-reading；start.bat 一键装 Python、建 .venv、启动网页端",
+                'BlingWorkspace：论文精读 + 代码分析工作台 + HTML 笔记',
+                "- web/：导入 → PDF / 图表 / 大纲 / 代码阅读 → 按 SKILL.md 六站讨论 → 分节精读笔记 → 导出单文件 HTML`n- 精读笔记改为 HTML（references/notes-template.html），SKILL.md / README 同步`n- 模型接口：本机 Claude Code / 本机 Codex（会员额度）/ DeepSeek / Claude API / OpenAI 兼容`n- 项目名称 BlingWorkspace；start.bat 一键装 Python、建 .venv、启动网页端",
                 "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`nClaude-Session: https://claude.ai/code/session_01SpfPukjpBKv4ewRSdoWrtu"
             )
         }

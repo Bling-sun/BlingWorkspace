@@ -40,6 +40,8 @@ import history as history_mod  # noqa: E402
 WEB = Path(__file__).resolve().parent
 REPO = WEB.parent
 SCRIPTS = REPO / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import networking  # noqa: E402
 CONFIG = WEB / "config.json"
 UPLOADS = WEB / "_uploads"
 
@@ -51,6 +53,8 @@ DEFAULTS = {
     "papers_root": str(REPO / "papers"),
     "repos_root": str(REPO / "repos"),   # 代码仓库的分析目录放这里
     "extra_papers": [],          # 在 papers_root / repos_root 之外导入过的资料目录
+    "deleted_items": [],          # 软删除：全部本机文件保留，可恢复
+    "network_proxy": "auto",      # auto / direct / HTTP 代理地址
     "host": "127.0.0.1",
     "port": 8765,
 }
@@ -70,6 +74,7 @@ app = Flask(__name__, static_folder=str(WEB / "static"), static_url_path="/stati
 app.config["MAX_CONTENT_LENGTH"] = 300 * 1024 * 1024
 _locks = {}
 _jobs = {}
+_library_lock = threading.RLock()
 
 
 # ---------------- 设置 ----------------
@@ -112,7 +117,7 @@ def save_settings(s):
     raw = _raw()
     out = {k: s.get(k, raw.get(k, DEFAULTS[k])) for k in DEFAULTS}
     out["profiles"] = s.get("profiles", raw.get("profiles", {}))
-    CONFIG.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    history_mod.write_json(CONFIG, out)
 
 
 def mask(k):
@@ -141,8 +146,12 @@ def post_settings():
     s = settings()
     body = request.get_json(force=True)
     for k in DEFAULTS:
-        if k in body and k not in ("extra_papers", "host", "port"):
+        if k in body and k not in ("extra_papers", "deleted_items", "host", "port"):
             s[k] = body[k]
+    try:
+        s["network_proxy"] = networking.validate_proxy(s["network_proxy"])
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     if s["provider"] not in PROVIDERS:
         s["provider"] = "mock"
     for k in ("max_tokens", "max_paper_chars"):
@@ -209,7 +218,9 @@ def _dir_setting(value, default_name):
     p = Path(os.path.expanduser(str(value or default_name)))
     if not p.is_absolute():
         p = REPO / p
-    if not p.exists() and p.name == default_name and (REPO / default_name).exists():
+    legacy_root = p.parent.name.lower() in ("bling-paper-reading", "blingworkspace", "bling-workspace")
+    if (not p.exists() and p.name == default_name and legacy_root
+            and p.parent.parent.resolve() == REPO.parent.resolve() and (REPO / default_name).exists()):
         p = REPO / default_name
     p.mkdir(parents=True, exist_ok=True)
     return p
@@ -228,10 +239,13 @@ def paper_dirs():
     root, extra = roots()
     found = {}
     rr = repos_root()
+    deleted = {os.path.normcase(str(Path(item["path"]).resolve())) for item in settings().get("deleted_items", [])}
     cands = [d for d in sorted(root.iterdir()) if d.is_dir()] + \
             ([d for d in sorted(rr.iterdir()) if d.is_dir()] if rr.resolve() != root.resolve() else []) + \
             [d for d in extra if d.is_dir()]
     for d in cands:
+        if os.path.normcase(str(d.resolve())) in deleted:
+            continue
         if (d / "meta.json").exists() or (d / "paper.pdf").exists():
             slug = d.name
             while slug in found and found[slug] != d:
@@ -364,6 +378,41 @@ def get_paper(slug):
                     "sections": notes_mod.sections_for(meta)})
 
 
+@app.delete("/api/papers/<slug>")
+def delete_paper(slug):
+    """整份阅读记录移入回收站；源码、PDF 和记录文件始终保留在本机。"""
+    with _library_lock:
+        d = paper_dir(slug).resolve()
+        meta = load_meta(d)
+        item = {"id": uuid.uuid4().hex[:12], "path": str(d), "title": meta.get("title") or slug,
+                "kind": meta.get("kind", "paper"), "deleted_at": now()}
+        s = settings()
+        s["deleted_items"] = [*s.get("deleted_items", []), item]
+        save_settings(s)
+    return jsonify({"ok": True, "item": item})
+
+
+@app.get("/api/trash")
+def list_trash():
+    return jsonify({"items": list(reversed(settings().get("deleted_items", [])))})
+
+
+@app.post("/api/trash/<item_id>/restore")
+def restore_paper(item_id):
+    with _library_lock:
+        s = settings()
+        item = next((it for it in s.get("deleted_items", []) if it["id"] == item_id), None)
+        if not item:
+            abort(404, "没有这份回收记录")
+        dest = Path(item["path"]).resolve()
+        if not dest.is_dir():
+            return jsonify({"error": "原资料目录已被移动或删除，请重新导入"}), 409
+        s["deleted_items"] = [it for it in s["deleted_items"] if it["id"] != item_id]
+        save_settings(s)
+        slug = next((slug for slug, d in paper_dirs().items() if d.resolve() == dest), None)
+    return jsonify({"ok": True, "slug": slug})
+
+
 @app.get("/api/papers/<slug>/symbols")
 def symbols(slug):
     f = paper_dir(slug) / "symbols.json"
@@ -445,9 +494,11 @@ def run_job(cmd, cwd, on_done=None):
     _jobs[jid] = job
 
     def work():
-        env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", PYTHONWARNINGS="ignore")
         status = "failed"
         try:
+            env = networking.proxy_environment(settings().get("network_proxy", "auto"))
+            env.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8", PYTHONWARNINGS="ignore")
+            job["log"].append("下载网络：" + networking.proxy_label(env["BLING_NETWORK_PROXY"]))
             with subprocess.Popen([str(c) for c in cmd], cwd=str(cwd), stdout=subprocess.PIPE,
                                   stderr=subprocess.STDOUT, env=env) as p:
                 for raw in p.stdout:
@@ -485,10 +536,15 @@ def register_extra(job):
     dest = Path(job["dest"]).resolve()
     if not (dest / "meta.json").exists():
         return
-    if dest.parent not in (roots()[0].resolve(), repos_root().resolve()):
+    with _library_lock:
         s = settings()
-        if str(dest) not in s["extra_papers"]:
+        removed = s.get("deleted_items", [])
+        s["deleted_items"] = [it for it in removed if Path(it["path"]).resolve() != dest]
+        changed = removed != s["deleted_items"]
+        if dest.parent not in (roots()[0].resolve(), repos_root().resolve()) and str(dest) not in s["extra_papers"]:
             s["extra_papers"].append(str(dest))
+            changed = True
+        if changed:
             save_settings(s)
 
 
@@ -550,7 +606,7 @@ def analyze_code(slug):
         cmd += ["--title", name, "--slug", re.sub(r"[^\w.-]+", "-", f"{name}-{slug}")[:80].lower()]
     elif cr:
         cmd += ["--title", f"{meta.get('title') or slug} · 代码", "--slug", f"code-{slug}"[:80]]
-    return jsonify(run_job(cmd, repos_root()))
+    return jsonify(run_job(cmd, repos_root(), on_done=register_extra))
 
 
 @app.post("/api/papers/<slug>/reanalyze")

@@ -19,18 +19,23 @@ import argparse
 import ast
 import datetime
 import io
+import http.client
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
 import urllib.error
 import urllib.request
+import urllib.parse
 import zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
+
+import networking
 
 try:
     import tomllib
@@ -149,7 +154,7 @@ def slugify(*parts):
 
 def http_get(url, timeout=25, limit=300_000_000, headers=None):
     req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with networking.urlopen(req, timeout=timeout) as r:
         data = r.read(limit + 1)
     if len(data) > limit:
         raise ValueError(f"超过 {limit // 1_000_000} MB 上限")
@@ -164,10 +169,26 @@ def github_api(owner, repo):
     return json.loads(http_get(f"https://api.github.com/repos/{owner}/{repo}", timeout=15, limit=2_000_000, headers=headers))
 
 
-def git(*args, cwd=None, timeout=300):
+def git(*args, cwd=None, timeout=90):
     env = dict(os.environ, GIT_LFS_SKIP_SMUDGE="1", GIT_TERMINAL_PROMPT="0")
-    return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", timeout=timeout)
+    proxy = os.environ.get("BLING_NETWORK_PROXY")
+    options = ["-c", "http.proxy=" + ("" if proxy == "direct" else proxy)] if proxy else []
+    exe = networking.git_executable()
+    env["PATH"] = str(Path(exe).parent) + os.pathsep + env.get("PATH", "")
+    command = [exe, *options, *args]
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, encoding="utf-8", errors="replace", start_new_session=os.name != "nt")
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Git's HTTP helper inherits the pipes; stop our entire child tree before removing a failed clone.
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True, timeout=10)
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+        process.communicate(timeout=10)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def clone(url, code_dir, ref=None):
@@ -205,7 +226,10 @@ def clone(url, code_dir, ref=None):
         return "failed", (r.stderr.strip().split("\n") or [""])[-1][:200]
     except subprocess.TimeoutExpired:
         shutil.rmtree(code_dir, ignore_errors=True)
-        return "failed", "克隆超时（5 分钟）"
+        return "failed", "克隆超时（90 秒）"
+    except OSError as exc:
+        shutil.rmtree(code_dir, ignore_errors=True)
+        return "failed", f"无法运行 Git：{exc}"
 
 
 def safe_unzip(data, dest):
@@ -229,7 +253,18 @@ def safe_unzip(data, dest):
 
 
 def github_zip(owner, repo, ref, code_dir):
-    data = http_get(f"https://github.com/{owner}/{repo}/archive/{ref or 'HEAD'}.zip", timeout=120)
+    version = urllib.parse.quote(ref or "HEAD", safe="/")
+    urls = [f"https://codeload.github.com/{owner}/{repo}/zip/{version}",
+            f"https://github.com/{owner}/{repo}/archive/{version}.zip"]
+    last = None
+    for url in urls:
+        try:
+            data = http_get(url, timeout=120)
+            break
+        except (OSError, http.client.HTTPException) as exc:
+            last = exc
+    else:
+        raise OSError(f"GitHub ZIP 下载失败：{last}")
     code_dir = Path(code_dir).resolve()
     code_dir.parent.mkdir(parents=True, exist_ok=True)
     # 下载、解压成功后再替换快照；网络失败时保留上一次可读的代码。
@@ -783,6 +818,13 @@ def main():
     ap.add_argument("--paper-title", help="那篇论文的标题")
     ap.add_argument("--title", help="显示名（默认用仓库名 / 文件夹名）")
     args = ap.parse_args()
+
+    try:
+        env = networking.proxy_environment(os.environ.get("BLING_NETWORK_PROXY", "auto"))
+        os.environ.update({k: v for k, v in env.items() if k in ("HTTP_PROXY", "HTTPS_PROXY", "BLING_NETWORK_PROXY")})
+        log("  · 下载网络：" + networking.proxy_label(env["BLING_NETWORK_PROXY"]))
+    except ValueError as exc:
+        sys.exit(f"  ✗ {exc}")
 
     try:
         t = parse_target(args.target)

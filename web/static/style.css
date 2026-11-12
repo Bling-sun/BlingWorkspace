@@ -414,3 +414,8 @@ table.kv tr+tr th,table.kv tr+tr td{border-top:1px solid var(--line)}
 a.btn{text-decoration:none}
 .code-bar .fpath{flex:1 1 calc(100% - 60px);min-width:0;word-break:break-all}
 .code-bar #selInfo{flex:1 1 auto;min-width:9em}
+
+.btn.danger,.icon-btn.danger{color:var(--err)}
+.btn.danger:hover,.icon-btn.danger:hover{border-color:var(--err);background:var(--err-soft)}
+.trash-row{display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.trash-row strong{overflow-wrap:anywhere}

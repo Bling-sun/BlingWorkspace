@@ -19,7 +19,7 @@ The two are connected: inside a paper workspace, "Read the code with the code an
 
 **Quick start:** on Windows double-click `start.bat` (it installs Python if needed); on macOS / Linux run `./start.sh`.
 
-The project folder is named **`Bling-Workspace`**. For a new checkout, use `git clone https://github.com/Bling-sun/bling-paper-reading.git Bling-Workspace`.
+The project folder is named **`Bling-Workspace`**. For a new checkout, use `git clone https://github.com/Bling-sun/BlingWorkspace.git Bling-Workspace`.
 The home page offers separate **Paper reader** and **Code analyzer** entries sharing one library, discussions, notes and history.
 The browser opens http://127.0.0.1:8765. See [web/README.md](web/README.md). Models: your Claude / ChatGPT subscription via the local
 Claude Code / Codex CLI (no API key), or DeepSeek, the Claude API, or any OpenAI-compatible endpoint.
@@ -47,6 +47,14 @@ python3 scripts/fetch_repo.py repos/pallets-flask                               
 
 `fetch_repo.py` uses only the standard library and never installs or runs anything from the repository. Entry points and core modules
 are heuristics (Python via AST, JS / TS / Go via imports, regex symbols for other languages); the model verifies them before relying on them.
+
+### Downloads, copying and complete record deletion
+
+Configure the code-import proxy in Settings. `auto` uses system/environment/Git proxy settings or a listening local port 7897; set an HTTP proxy explicitly or choose `direct`. Git and ZIP downloads share this setting, with codeload and archive ZIP endpoints available when Git fails.
+
+Reply Copy preserves Markdown. Copy code copies selected lines, or the whole file if no lines are selected. A compatible browser copy method and a manual selection dialog are available when the Clipboard API is blocked.
+
+Delete on a library card or Delete record in the workspace moves the complete reading record into the recycle bin, including its discussions, notes and history. Restore from the library's recycle bin to resume reading. This is a recoverable soft deletion: all local files, original code and PDFs remain in place. Reimporting the same material restores its record too.
 
 ### Seven stops for code
 
@@ -95,7 +103,7 @@ source URLs, images and resource links (up to 5 same-host pages and 20 images by
 **Claude Code** (installed as a skill, it kicks in when you say "read this paper with me"):
 
 ```bash
-git clone https://github.com/Bling-sun/bling-paper-reading.git ~/.claude/skills/bling-workspace
+git clone https://github.com/Bling-sun/BlingWorkspace.git ~/.claude/skills/bling-workspace
 pip install pymupdf
 ```
 
@@ -188,6 +196,13 @@ you already have (only what's missing gets filled in). The scripts print their p
 | `scripts/crop.py` | Zooms into part of a figure, crops equations from a PDF page, or re-crops a bad figure |
 | `scripts/fetch_repo.py` | Clones a GitHub / Git repo (or points at a local folder), computes languages, entry points, symbols and the import graph, writes the repo map |
 | `tests/` | `python -m unittest discover -s tests` (no network, no model calls) |
+
+## Updating GitHub
+
+The remote repository is [Bling-sun/BlingWorkspace](https://github.com/Bling-sun/BlingWorkspace); the local folder remains `Bling-Workspace`.
+On Windows, double-click `push_to_github.bat` to commit local changes, push to `main`, and verify the remote commit.
+Run `push_to_github.bat -Check` for a check without committing or pushing. The default proxy is `http://127.0.0.1:7897`; override it with `-Proxy "http://127.0.0.1:PORT"`.
+Use `-Message "Your message"` to supply a commit message. Local materials, notes, profiles and configuration are excluded; the script stops if the remote has unmerged changes.
 
 ## Related
 

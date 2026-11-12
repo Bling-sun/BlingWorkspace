@@ -273,10 +273,15 @@ class WebRepoTests(unittest.TestCase):
             self.assertNotIn("https://github.com/o/first", command)
         self.assertEqual(self.client.post("/api/papers/site/analyze-code", json={"url": "file:///private"}).status_code, 400)
 
-    @unittest.skipUnless((server.REPO / "papers").is_dir(), "项目里没有 papers/")
     def test_renamed_project_folder_falls_back(self):
-        missing = Path(self.tmp.name) / "old-name" / "papers"
-        self.assertEqual(server._dir_setting(str(missing), "papers"), server.REPO / "papers")
+        renamed = Path(self.tmp.name) / "Bling-Workspace"
+        (renamed / "papers").mkdir(parents=True)
+        missing = Path(self.tmp.name) / "bling-paper-reading" / "papers"
+        with patch.object(server, "REPO", renamed):
+            self.assertEqual(server._dir_setting(str(missing), "papers"), renamed / "papers")
+            custom = Path(self.tmp.name) / "custom-folder" / "papers"
+            self.assertEqual(server._dir_setting(str(custom), "papers"), custom)
+            self.assertTrue(custom.is_dir())
 
 
 if __name__ == "__main__":

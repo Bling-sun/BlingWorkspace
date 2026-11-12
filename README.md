@@ -21,7 +21,7 @@
 项目文件夹统一命名为 **`Bling-Workspace`**。已有项目直接使用根目录的启动脚本；首次下载可执行：
 
 ```bash
-git clone https://github.com/Bling-sun/bling-paper-reading.git Bling-Workspace
+git clone https://github.com/Bling-sun/BlingWorkspace.git Bling-Workspace
 cd Bling-Workspace
 ```
 
@@ -61,6 +61,12 @@ cd Bling-Workspace
 
 讨论里出现的 `code/路径:行号`（讨论、笔记、概览里都一样）点一下就在左边打开并高亮那几行。快捷提问：没懂换个讲法、谁调用了它、画调用链、想改 X 改哪。
 
+## 下载代理、复制与记录删除
+
+- **GitHub 下载失败**：在「设置 → 下载网络」配置代码导入代理。默认 `auto` 沿用系统 / 环境 / Git 代理；没有配置时检测本机 `7897` 端口。也可明确填写 `http://127.0.0.1:7897`，或填 `direct` 直连。代码分析器的 Git 克隆与 ZIP 下载使用同一代理；Git 失败后尝试 codeload 和 archive 两个 ZIP 通道。
+- **复制**：讨论回复的「复制」复制 Markdown 原文。代码阅读器的「复制代码」复制选中行，没有选行时复制当前文件。浏览器剪贴板接口不可用时自动尝试兼容方式；仍被阻止时弹出已选中的文本，按 Ctrl+C / ⌘C 完成复制。
+- **删除整份记录**：资料库卡片的「删除」或工作台顶栏的「删除记录」将整份资料从资料库移入回收站，全部讨论、笔记和历史一起移除。点击资料库「回收站 → 恢复」即可继续阅读。采用可恢复的软删除：本地文件仍保留在原目录，源码与 PDF 不受影响；重新导入同一份资料也会恢复记录。
+
 ## 七站读代码，每站讲完你能说出什么
 
 | 站 | 讲完你能说出 |
@@ -99,7 +105,7 @@ cd Bling-Workspace
 **Claude Code**（装成 skill，说「读一下这篇论文」就会自动用上）：
 
 ```bash
-git clone https://github.com/Bling-sun/bling-paper-reading.git ~/.claude/skills/bling-workspace
+git clone https://github.com/Bling-sun/BlingWorkspace.git ~/.claude/skills/bling-workspace
 pip install pymupdf
 ```
 
@@ -172,6 +178,20 @@ cp profile.example.md profile.md
 | `scripts/crop.py` | 放大图的局部、从 PDF 页面裁公式或重裁坏图 |
 | `tests/` | `python -m unittest discover -s tests`（不联网、不调模型） |
 | `profile.example.md` | 用户画像模板（复制成 `profile.md`） |
+
+## 更新 GitHub 上的代码
+
+远程仓库为 [Bling-sun/BlingWorkspace](https://github.com/Bling-sun/BlingWorkspace)，本地文件夹仍为 `Bling-Workspace`。
+
+Windows 双击根目录的 **`push_to_github.bat`**：自动提交本地改动、推送到远程 `main`，并核对提交号。脚本默认使用本机代理 `http://127.0.0.1:7897`，运行前请打开代理软件。
+
+只检查连接和待提交文件、不提交也不推送：
+
+```powershell
+.\push_to_github.bat -Check
+```
+
+可用 `-Message "更新说明"` 指定提交说明，或用 `-Proxy "http://127.0.0.1:端口"` 指定其他代理。论文、克隆的代码、笔记、用户画像和本机配置不上传；远程有未合并的提交时会停止，不会强制推送。
 
 ## 相关
 

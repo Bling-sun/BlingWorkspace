@@ -107,6 +107,12 @@ function toast(msg, ms = 2600) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
 }
+async function copyContent(text) {
+  if (await BlingClipboard.copyText(text)) return toast('已复制');
+  openModal('复制内容', `<p>浏览器未允许自动复制，内容已选中，请按 Ctrl+C（Mac：⌘C）。</p><textarea id="manualCopy" rows="12" readonly aria-label="待复制内容">${esc(text)}</textarea>`, body => {
+    const field = $('#manualCopy', body); field.focus(); field.select();
+  });
+}
 async function api(path, opts = {}) {
   const o = { ...opts };
   if (o.json !== undefined) { o.body = JSON.stringify(o.json); o.headers = { 'Content-Type': 'application/json' }; delete o.json; }
@@ -392,6 +398,9 @@ async function openSettings() {
     <details><summary class="muted small">高级</summary><div class="grid2" style="margin-top:10px">
       <label class="field"><span>单次回复最多 token</span><input id="sMax" type="number" value="${esc(s.max_tokens)}"></label>
       <label class="field"><span>放进上下文的正文最多字数</span><input id="sChars" type="number" value="${esc(s.max_paper_chars)}"></label></div></details>
+    <h4>下载网络</h4>
+    <label class="field"><span>代码导入代理</span><input id="sProxy" value="${esc(s.network_proxy || 'auto')}" placeholder="auto 或 http://127.0.0.1:7897"></label>
+    <p class="hint">auto 自动沿用系统 / 环境 / Git 代理，或检测本机 7897 端口；填 direct 强制直连。Git 克隆和 ZIP 下载使用同一设置。</p>
     <h4>资料目录</h4>
     <div class="grid2"><label class="field"><span>论文 / 网站目录（每份资料一个子目录）</span><input id="sRoot" value="${esc(s.papers_root)}"></label>
     <label class="field"><span>代码分析目录（每个仓库一个子目录）</span><input id="sRepos" value="${esc(s.repos_root || '')}"></label></div>
@@ -426,7 +435,7 @@ async function openSettings() {
     const save = async () => {
       const r = await api('/api/settings', { method: 'POST', json: {
         provider: $('#sProvider').value, max_tokens: $('#sMax').value, max_paper_chars: $('#sChars').value,
-        use_tools: $('#sTools').checked, papers_root: $('#sRoot').value.trim(), repos_root: $('#sRepos').value.trim(),
+        use_tools: $('#sTools').checked, network_proxy: $('#sProxy').value.trim() || 'auto', papers_root: $('#sRoot').value.trim(), repos_root: $('#sRepos').value.trim(),
         profile: { model: $('#sModel').value.trim(), api_key: $('#sKey').value.trim(), base_url: $('#sBase').value.trim(),
           cli_path: $('#sCli').value.trim(), vision: $('#sVision').checked },
       } });
@@ -476,7 +485,7 @@ async function showLibrary() {
     </div>
     <section class="importer" id="importer"></section>
     <div class="lib-tools"><div class="seg" id="libFilter">${LIB_FILTERS.map(([k, v]) => `<button data-f="${k}" class="${S.libFilter === k ? 'on' : ''}">${v}</button>`).join('')}</div>
-      <input id="q" placeholder="搜索标题、作者、仓库、语言" value="${esc(S.query)}"><span class="muted small grow" id="count"></span></div>
+      <input id="q" placeholder="搜索标题、作者、仓库、语言" value="${esc(S.query)}"><span class="muted small grow" id="count"></span><button class="btn sm" id="trashBtn">回收站</button></div>
     <div id="cards"></div>
     <p class="muted small lib-roots" id="rootLine"></p></div></div>`;
   renderImporter();
@@ -485,6 +494,7 @@ async function showLibrary() {
     $('#importer').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     $('#impTarget')?.focus({ preventScroll: true });
   });
+  $('#trashBtn').onclick = openTrash;
   $('#q').oninput = e => { S.query = e.target.value; renderCards(); };
   $$('#libFilter button').forEach(b => b.onclick = () => {
     S.libFilter = b.dataset.f; store.set('libFilter', S.libFilter);
@@ -627,8 +637,43 @@ function repoSource(p) {
   const u = (p.source_url || '').replace(/^https?:\/\/(www\.)?/, '');
   return esc(u) + (p.branch ? ` · ${esc(p.branch)}` : '');
 }
+async function deleteRecord(slug, title) {
+  if (S.ctrl) return toast('请先停止当前生成，再删除记录');
+  if (S.saveState === '保存中…') return toast('请等待笔记保存完成后再删除记录');
+  openModal('删除整份阅读记录', `<p>将 <strong>${esc(title)}</strong> 从资料库移入回收站。</p><p>这份资料的全部讨论、笔记和历史一起移除，可在回收站恢复。本地源码、PDF 和记录文件保留。</p><div class="row"><span class="grow"></span><button class="btn" data-close>取消</button><button class="btn danger" id="deleteRecordConfirm">移入回收站</button></div>`, body => {
+    $('#deleteRecordConfirm', body).onclick = async e => {
+      e.target.disabled = true;
+      try {
+        if (S.slug === slug) {
+          await flushSave();
+          if (S.saveState === '保存失败') throw new Error('笔记尚未保存，请先保存后再删除');
+        }
+        await api(`/api/papers/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+        S.papers = S.papers.filter(p => p.slug !== slug);
+        closeModal();
+        if (S.slug === slug) { S.slug = null; S.paper = null; S.notes = null; location.hash = '#/'; }
+        else renderCards();
+        toast('整份记录已移入回收站，可恢复');
+      } catch (err) { toast('删除失败：' + err.message); if (e.target.isConnected) e.target.disabled = false; }
+    };
+  });
+}
+async function openTrash() {
+  try {
+    const { items } = await api('/api/trash');
+    openModal('回收站', `<p class="muted small">删除的整份阅读记录保留在本机，恢复后可以继续讨论、查看笔记与历史。</p>${items.length ? items.map(item => `<div class="trash-row"><div class="grow"><strong>${esc(item.title)}</strong><div class="muted small">${esc(fmtTime(item.deleted_at))} · ${item.kind === 'repo' ? '代码分析' : '论文 / 网站'}</div></div><button class="btn sm" data-restore="${esc(item.id)}">恢复</button></div>`).join('') : '<p class="muted">回收站为空。</p>'}`, body => {
+      $$('[data-restore]', body).forEach(b => b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await api(`/api/trash/${encodeURIComponent(b.dataset.restore)}/restore`, { method: 'POST' });
+          S.papers = (await api('/api/papers')).papers; renderCards(); await openTrash(); toast('已恢复整份阅读记录');
+        } catch (err) { toast('恢复失败：' + err.message); if (b.isConnected) b.disabled = false; }
+      });
+    });
+  } catch (err) { toast('读取回收站失败：' + err.message); }
+}
 function cardHtml(p) {
-  const foot = `<div class="row"><div class="stations">${stationDots(p.progress)}</div><span class="grow"></span><span class="muted small">${p.progress.messages ? `${p.progress.messages} 条讨论 · ` : ''}${fmtTime(p.mtime)}</span></div>`;
+  const foot = `<div class="row"><div class="stations">${stationDots(p.progress)}</div><span class="grow"></span><span class="muted small">${p.progress.messages ? `${p.progress.messages} 条讨论 · ` : ''}${fmtTime(p.mtime)}</span><button class="icon-btn danger" data-delete-record aria-label="删除 ${esc(p.title)} 的整份记录">删除</button></div>`;
   if (p.kind === 'repo') {
     return `<article class="card repo" data-slug="${esc(p.slug)}" tabindex="0">
       <div class="card-top"><span class="kind-badge repo">代码库</span><span class="muted small src">${repoSource(p)}</span></div>
@@ -668,7 +713,9 @@ function renderCards() {
   box.innerHTML = list.map(cardHtml).join('');
   $$('.card', box).forEach(c => {
     c.onclick = () => { location.hash = '#/p/' + encodeURIComponent(c.dataset.slug); };
-    c.onkeydown = e => { if (e.key === 'Enter') c.onclick(); };
+    const del = $('[data-delete-record]', c);
+    del.onclick = e => { e.stopPropagation(); const p = S.papers.find(p => p.slug === c.dataset.slug); deleteRecord(p.slug, p.title); };
+    c.onkeydown = e => { if (e.target === c && e.key === 'Enter') c.onclick(); };
   });
 }
 
@@ -716,6 +763,7 @@ async function openPaper(slug) {
       <div class="grow"><h2>${esc(m.title || slug)}</h2><div class="sub">${sub}</div></div>
       <span class="small muted hide-m">讨论自动保存到本机</span>
       ${extra}
+      <button class="btn sm danger" data-act="delete-record">删除记录</button>
       <button class="btn sm" data-act="history">历史 / 对比</button>
       <button class="btn sm hide-m" data-act="preview">预览笔记</button>
       <button class="btn sm primary" data-act="export">导出 HTML</button>
@@ -771,6 +819,7 @@ function jobModal(title, job, onDone) {
 }
 async function headAction(act) {
   const slug = encodeURIComponent(S.slug);
+  if (act === 'delete-record') return deleteRecord(S.slug, S.paper.meta.title || S.slug);
   if (act === 'history') { await flushSave(); return openHistory(); }
   if (act === 'preview') { await flushSave(); window.open(`/api/papers/${slug}/notes/view`, '_blank'); }
   if (act === 'analyze') return analyzePaperCode();
@@ -1052,6 +1101,7 @@ function renderFileView(o, scrollToSel) {
   const html = S.file.big ? lines.map(esc) : highlightLines(S.file.text, S.file.path);
   o.innerHTML = `<div class="code-bar"><button class="btn sm" data-act="back" title="返回目录">←</button><strong class="grow fpath">${esc(S.file.path)}</strong>
       <span class="muted" id="selInfo"></span>
+      <button class="btn sm" data-act="copy-code">复制代码</button>
       <button class="btn sm" data-act="explain" title="附上选中的行，让 AI 讲解">讲讲这段</button>
       <button class="btn sm primary" data-act="attach">附到提问</button></div>
     <pre class="codeview hl">${html.map((l, i) => `<span class="l" data-n="${i + 1}"><span class="n">${i + 1}</span>${l}</span>`).join('')}</pre>`;
@@ -1064,6 +1114,10 @@ function renderFileView(o, scrollToSel) {
     const k = +n.parentElement.dataset.n;
     S.sel = e.shiftKey && S.sel ? { a: S.sel.a, b: k } : { a: k, b: k }; upd();
   });
+  $('[data-act=copy-code]', o).onclick = () => {
+    const selected = S.sel ? lines.slice(Math.min(S.sel.a, S.sel.b) - 1, Math.max(S.sel.a, S.sel.b)).join('\n') : S.file.text;
+    copyContent(selected);
+  };
   $('[data-act=back]', o).onclick = () => { S.file = null; renderFiles(o); };
   const attach = () => {
     let a = 1, b = lines.length;
@@ -1290,7 +1344,7 @@ function bindMsgs(box) {
   $$('[data-ma]', box).forEach(b => b.onclick = async () => {
     const el = b.closest('.msg'); const id = el.dataset.id; const m = S.paper.messages.find(x => x.id === id);
     const act = b.dataset.ma;
-    if (act === 'copy') { try { await navigator.clipboard.writeText(m.content); toast('已复制 Markdown'); } catch { toast('复制失败'); } }
+    if (act === 'copy') { if (m) await copyContent(m.content); }
     if (act === 'del') {
       if (!confirm('删除这条消息？')) return;
       const r = await api(`/api/papers/${encodeURIComponent(S.slug)}/messages/${id}`, { method: 'DELETE' });

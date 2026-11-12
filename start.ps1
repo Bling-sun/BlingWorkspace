@@ -1,4 +1,4 @@
-﻿# bling 精读工作台 · Windows 一键启动
+﻿# Bling-Workspace（论文精读 + 代码分析）· Windows 一键启动
 # 由 start.bat 调用：找 Python（没有就帮你装）→ 建 .venv 装依赖（第一次几分钟）→ 启动网页端并打开浏览器
 $ErrorActionPreference = 'Continue'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -43,7 +43,7 @@ function Find-Python {
 }
 
 Say ''
-Say '==== bling 精读工作台 ====' 'Cyan'
+Say '==== Bling-Workspace · 论文精读 + 代码分析 ====' 'Cyan'
 $venvPy = Join-Path $Root '.venv\Scripts\python.exe'
 
 if (-not (Test-Path $venvPy)) {
@@ -90,7 +90,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Say '提示：没检测到 git，导入论文时克隆官方代码这一步会跳过（其他功能不受影响）。装 git：https://git-scm.com/download/win' 'Yellow'
+    Say '提示：没检测到 git。导入论文时克隆官方代码会跳过；代码分析器导入 GitHub 仓库时会改为下载 zip（本机文件夹不受影响）。装 git：https://git-scm.com/download/win' 'Yellow'
 }
 
 Say ''

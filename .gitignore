@@ -7,6 +7,8 @@ __pycache__/
 
 # 在仓库目录里试跑 fetch_paper.py 时默认下到这里
 papers/
+# 代码分析器的分析目录（克隆的代码、讨论、笔记）
+repos/
 
 # 网页端：本机设置（含 API Key）和上传的临时 PDF
 web/config.json

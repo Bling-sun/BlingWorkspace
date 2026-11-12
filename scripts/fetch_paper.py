@@ -49,7 +49,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True  # import extract_figures 时别在 skill 目录里留 __pycache__
 
-UA = "bling-paper-reading/0.1 (academic paper reader)"
+UA = "Bling-Workspace/1.0 (academic paper reader)"
 NEW_ID = r'\d{4}\.\d{4,5}(?:v\d+)?'
 OLD_ID = r'[a-z][a-z\-]+(?:\.[A-Z]{2})?/\d{7}(?:v\d+)?'
 ARXIV_RE = re.compile(rf'(?<![\d.])({NEW_ID}|{OLD_ID})(?!\d)')

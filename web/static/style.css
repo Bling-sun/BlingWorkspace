@@ -4,6 +4,8 @@
   --ok:#2f7d5b;--ok-soft:#e3f2ea;--warn:#a86b00;--err:#b42318;--err-soft:#fdecea;
   --code:#eaf0ec;--user:#e2eee7;--shadow:0 2px 12px rgba(35,59,53,.045);
   --r:10px;--mono:"JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --repo:#2f5d8a;--repo-soft:#e3ecf5;--paper-tag:#286453;--paper-soft:#e2eee7;--site:#7a5b16;--site-soft:#f5ecd6;
+  --tk-kw:#8a3f9e;--tk-str:#2f7d3a;--tk-com:#7b8a83;--tk-num:#b45309;--tk-fn:#1f5fa8;--tk-dec:#9a5b00;
   color-scheme:light;
 }
 :root[data-theme="dark"]{
@@ -11,10 +13,13 @@
   --line:#344a40;--line-2:#4d685a;--accent:#a0d5bb;--accent-ink:#18392a;--accent-soft:#2d483b;
   --ok:#5cc495;--ok-soft:#1d3a2d;--warn:#e0a640;--err:#f07a6e;--err-soft:#3d2220;
   --code:#172822;--user:#2a4437;--shadow:0 2px 12px rgba(0,0,0,.15);color-scheme:dark;
+  --repo:#9cc3ea;--repo-soft:#22384c;--paper-tag:#a0d5bb;--paper-soft:#2d483b;--site:#e2c27a;--site-soft:#3d3420;
+  --tk-kw:#d3a6f0;--tk-str:#9fd99a;--tk-com:#7f978b;--tk-num:#f0b56e;--tk-fn:#8fc2f5;--tk-dec:#e8c46a;
 }
 :root[data-theme="paper"]{
   --bg:#f1eee7;--panel:#fcfaf4;--panel-2:#f5f1e8;--ink:#38382f;--muted:#66685c;--faint:#77796c;
   --line:#e2dfd3;--line-2:#cdc8b8;--accent:#55644a;--accent-soft:#e9ecdf;--code:#f0eee3;--user:#e9ecdf;
+  --repo:#3d5a78;--repo-soft:#e6ebef;--paper-tag:#55644a;--paper-soft:#e9ecdf;
 }
 ::selection{background:var(--accent-soft);color:var(--ink)}
 *{box-sizing:border-box}
@@ -62,7 +67,7 @@ button.chip{cursor:pointer}button.chip:hover{border-color:var(--accent);color:va
 .seg button{border:none;background:none;padding:5px 12px;border-radius:7px;cursor:pointer;color:var(--muted)}
 .seg button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow)}
 
-/* ---------- 文献库 ---------- */
+/* ---------- 资料库 ---------- */
 .library{flex:1;overflow:auto}
 .lib-inner{max-width:1120px;margin:0 auto;padding:28px 20px 60px}
 .lib-title{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 16px}
@@ -281,3 +286,131 @@ button.chip{cursor:pointer}button.chip:hover{border-color:var(--accent);color:va
   .grid2{grid-template-columns:1fr}
   .topbar .crumbs{display:none}
 }
+
+/* ================= Bling-Workspace：资料库 + 代码分析器 ================= */
+.lib-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:4px 0 18px}
+.lib-hero h1{font-size:26px;margin:0;letter-spacing:-.01em}
+.lib-hero p{margin:4px 0 0;font-size:14px}
+.hero-eyebrow{font:600 10px/1.5 var(--mono);letter-spacing:.16em;color:var(--faint)}
+.workspace-entries{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0 18px}
+.workspace-entry{display:flex;align-items:center;gap:14px;text-align:left;padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--panel);cursor:pointer;transition:border-color .15s,transform .15s}
+.workspace-entry:hover{transform:translateY(-2px)}
+.workspace-entry strong{display:block;font-size:17px;margin-bottom:3px}
+.workspace-entry span span{display:block;font-size:12.5px;color:var(--muted)}
+.workspace-entry .entry-icon{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;font:600 18px/1 var(--mono);flex:none;background:var(--paper-soft);color:var(--paper-tag)}
+.workspace-entry.repo .entry-icon{background:var(--repo-soft);color:var(--repo)}
+.workspace-entry.paper.on,.workspace-entry.paper:hover{border-color:var(--accent)}
+.workspace-entry.repo.on,.workspace-entry.repo:hover{border-color:var(--repo)}
+.entry-arrow{margin-left:auto;color:var(--faint);font-size:20px}
+.repo-resources{padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--repo-soft);margin-bottom:16px}
+.repo-resources p{margin:4px 0 8px}
+.resource-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+.resource-row a{flex:1;min-width:0;overflow-wrap:anywhere;font:12px/1.6 var(--mono);color:var(--repo)}
+.hero-modes{display:flex;gap:8px;flex-wrap:wrap}
+.mode-pill{font-size:12.5px;padding:3px 11px;border-radius:999px;border:1px solid var(--line)}
+.mode-pill.paper{background:var(--paper-soft);color:var(--paper-tag)}
+.mode-pill.repo{background:var(--repo-soft);color:var(--repo)}
+.importer{border-top:3px solid var(--accent)}
+.importer.repo{border-top-color:var(--repo)}
+.imp-head{display:flex;align-items:center;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+.imp-head h2{margin:0}
+.imp-type{display:inline-flex;gap:6px}
+.imp-type button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line-2);background:var(--panel);border-radius:9px;padding:5px 13px;cursor:pointer;color:var(--muted);font-size:13.5px}
+.imp-type button .ic{font:600 12px/1 var(--mono);width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:var(--panel-2);color:var(--muted)}
+.imp-type button.on{color:var(--ink);border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.imp-type button.on .ic{background:var(--accent);color:var(--accent-ink)}
+.importer.repo .imp-type button.on{border-color:var(--repo);box-shadow:0 0 0 3px var(--repo-soft)}
+.importer.repo .imp-type button.on .ic{background:var(--repo);color:#fff}
+.importer.repo .btn.primary{background:var(--repo);border-color:var(--repo);color:#fff}
+:root[data-theme="dark"] .importer.repo .btn.primary,:root[data-theme="dark"] .importer.repo .imp-type button.on .ic{color:#13263a}
+.imp-more.repo{grid-template-columns:1fr 1fr 1fr}
+.lib-tools .seg{flex:none}
+.lib-roots{margin-top:22px}
+.lib-roots code{font-size:12px;word-break:break-all}
+.card-top{display:flex;align-items:center;gap:8px;min-width:0}
+.card-top .src{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.kind-badge{flex:none;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:6px;letter-spacing:.02em;background:var(--paper-soft);color:var(--paper-tag)}
+.kind-badge.repo{background:var(--repo-soft);color:var(--repo)}
+.kind-badge.site{background:var(--site-soft);color:var(--site)}
+.card.repo:hover{border-color:var(--repo)}
+.chip.mono{font-family:var(--mono);font-size:11.5px}
+.chip.warn{color:var(--warn);border-color:var(--warn)}
+.langbar{display:flex;height:7px;border-radius:99px;overflow:hidden;background:var(--panel-2);gap:1px}
+.langbar span{display:block;min-width:2px}
+.langleg{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--ink);margin-top:2px}
+.langleg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle}
+
+/* 代码位置：可点击跳转 */
+.md code.code-ref,code.code-ref{cursor:pointer;color:var(--repo);background:var(--repo-soft);border-bottom:1px dashed currentColor;border-radius:4px;padding:1px 5px;font-size:.88em;overflow-wrap:anywhere}
+.is-paper .md code.code-ref{color:var(--accent);background:var(--accent-soft)}
+code.code-ref:hover{filter:brightness(.92);border-bottom-style:solid}
+code.code-ref:focus-visible{outline:2px solid var(--repo);outline-offset:1px}
+
+/* 语法高亮 */
+.tk-kw{color:var(--tk-kw)}.tk-str{color:var(--tk-str)}.tk-com{color:var(--tk-com);font-style:italic}
+.tk-num{color:var(--tk-num)}.tk-fn{color:var(--tk-fn)}.tk-dec{color:var(--tk-dec)}
+.codeview .l.sel{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+.is-repo .codeview .l.sel{background:var(--repo-soft);box-shadow:inset 3px 0 0 var(--repo)}
+.code-bar .fpath{word-break:break-all;font:600 12.5px/1.4 var(--mono)}
+.fdot{display:inline-block;width:8px;height:8px;border-radius:50%}
+
+/* 代码仓库：概览 */
+.overview .ov-summary{font-size:14.5px;margin:0 0 12px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--panel-2);display:flex;flex-direction:column}
+.stat b{font-size:18px;line-height:1.3;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.overview h4{margin:18px 0 6px;font-size:14px}
+.ov-list{list-style:none;margin:0;padding:0}
+.ov-list li{display:flex;gap:10px;align-items:baseline;padding:3px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+.ov-list li:last-child{border-bottom:none}
+.dep{margin:6px 0;line-height:2}
+.dep .tag{font-family:var(--mono)}
+.readme{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--panel);font-size:14px;max-width:100%;overflow:hidden}
+.readme img{display:inline-block;margin:2px;max-height:300px;cursor:zoom-in}
+.readme img[src*="shields.io"],.readme img[src*="badge"]{height:20px;border:none;background:none;margin:0 2px}
+table.kv{border-collapse:collapse;width:100%;font-size:13.5px;margin:6px 0 10px}
+table.kv th{text-align:left;color:var(--muted);font-weight:500;white-space:nowrap;padding:5px 12px 5px 0;vertical-align:top;width:1%}
+table.kv td{padding:5px 0;word-break:break-all}
+table.kv tr+tr th,table.kv tr+tr td{border-top:1px solid var(--line)}
+
+/* 代码仓库：符号 */
+.sym-bar{position:sticky;top:0;z-index:2;background:var(--panel);padding:8px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.sym-bar input{flex:1;padding:6px 9px;font-size:13px}
+.sym-list{padding:4px 0 30px}
+.sym-file{display:flex;align-items:center;gap:8px;padding:10px 12px 3px}
+.sym-fname{border:none;background:none;padding:0;cursor:pointer;font:600 12.5px/1.4 var(--mono);color:var(--ink);text-align:left;word-break:break-all}
+.sym-fname:hover{color:var(--repo)}
+.sym{display:flex;gap:8px;align-items:baseline;width:100%;border:none;background:none;text-align:left;padding:3px 12px 3px 18px;cursor:pointer;color:var(--ink);font-size:13px}
+.sym:hover,.sym:focus-visible{background:var(--panel-2);outline:none}
+.sym.sub{padding-left:34px}
+.sym-n{flex:1;min-width:0;font-family:var(--mono);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sym-k{flex:none;font-size:11px;border-radius:5px;padding:0 6px;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);min-width:34px;text-align:center}
+.sym-k.k-class,.sym-k.k-struct,.sym-k.k-interface,.sym-k.k-trait{color:var(--tk-kw);border-color:currentColor}
+.sym-k.k-def,.sym-k.k-function,.sym-k.k-func,.sym-k.k-fn,.sym-k.k-fun{color:var(--tk-fn);border-color:currentColor}
+.sym-more{padding:2px 18px}
+
+/* 讨论欢迎页的七站路线 */
+.welcome .route{list-style:none;padding:0;margin:12px 0;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.welcome .route li{font-size:12.5px;padding:2px 10px;border-radius:999px;background:var(--repo-soft);color:var(--repo)}
+.welcome .route li+li::before{content:"→ ";color:var(--faint)}
+.is-repo .stbtn.on{background:var(--repo);border-color:var(--repo);color:#fff}
+:root[data-theme="dark"] .is-repo .stbtn.on{color:#13263a}
+.is-repo .stbtn.talked::after{background:var(--repo)}
+.is-repo .stbtn.on::after{background:currentColor}
+.ws-head .kind-badge{margin-left:-4px}
+@media (max-width:980px){
+  .lib-hero{flex-direction:column;align-items:flex-start}
+  .imp-more.repo{grid-template-columns:1fr}
+  .lib-tools{flex-wrap:wrap}.lib-tools input{max-width:none}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  .workspace-entries{grid-template-columns:1fr;gap:10px}
+  .workspace-entry{padding:16px}
+  .imp-main{flex-direction:column}
+  .cards{grid-template-columns:1fr}
+}
+a.btn{text-decoration:none}
+.code-bar .fpath{flex:1 1 calc(100% - 60px);min-width:0;word-break:break-all}
+.code-bar #selInfo{flex:1 1 auto;min-width:9em}

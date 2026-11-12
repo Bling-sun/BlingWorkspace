@@ -8,7 +8,7 @@ import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
-UA = "bling-paper-reading/1.0 (website reader)"
+UA = "Bling-Workspace/1.0 (website reader)"
 BLOCKS = {"p", "div", "section", "article", "main", "header", "footer", "li", "tr", "pre", "blockquote", "br"}
 
 

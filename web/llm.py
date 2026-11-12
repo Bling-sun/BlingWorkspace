@@ -305,7 +305,7 @@ def _claude_cli(settings, system, messages, ws, partial=True):
     if settings.get("model"):
         cmd += ["--model", settings["model"]]
     tail = ("直接输出给用户看的回复（Markdown），不要复述上面的说明。需要原文、代码或图时用 Read / Grep / Glob 读"
-            "（当前目录就是论文目录），不要修改或创建任何文件。")
+            "（当前目录就是资料目录，代码在 code/ 或 --add-dir 加进来的目录），不要修改或创建任何文件。")
     paths = [p for m in messages[-1:] for p in m.get("image_paths", [])]
     if paths:
         tail += "\n用户这条消息附了图，先用 Read 看：" + "、".join(paths)
@@ -379,7 +379,7 @@ def _codex_cli(settings, system, messages, ws):
     for p in [p for m in messages[-1:] for p in m.get("image_paths", [])][:4]:
         cmd += ["-i", p]
     cmd.append("-")  # prompt 从 stdin 读
-    tail = ("直接输出给用户看的回复（Markdown），不要复述上面的说明。需要原文或代码时用只读命令（rg、sed -n、cat）在当前目录（论文目录）里查，"
+    tail = ("直接输出给用户看的回复（Markdown），不要复述上面的说明。需要原文或代码时用只读命令（rg、sed -n、cat）在当前目录（资料目录）里查，"
             "不要修改或创建任何文件。")
     prompt = _transcript(system, messages, tail)
 
@@ -435,8 +435,36 @@ def _codex_cli(settings, system, messages, ws):
 
 # ---------------- 演示模式（没配模型时也能把界面走一遍） ----------------
 
+def _mock_repo(ws, last):
+    """代码仓库的演示回复：用真实的入口候选演示可点击的代码位置。"""
+    try:
+        meta = json.loads((ws.paper / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        meta = {}
+    pre = "code/" + (meta["subdir"] + "/" if meta.get("subdir") else "")
+    ent = (meta.get("entry_points") or [{}])[0]
+    mods = meta.get("top_modules") or []
+    yield {"type": "tool", "name": "list_dir", "input": {"path": "code"}, "summary": "列目录 code"}
+    langs = " / ".join(f"{l['name']} {l['pct']}%" for l in (meta.get("languages") or [])[:3]) or "未识别"
+    reply = (
+        "**演示模式**：还没有配置模型，这是一段占位回复，用来演示代码分析器的界面。到右上角「设置」里选好模型就能真正开讲。\n\n"
+        f"你刚才说的是：\n\n> {last[:200]}\n\n"
+        f"- 仓库：**{meta.get('title', '')}** · {meta.get('n_files', 0)} 个文件 · 代码 {meta.get('n_code_lines', 0):,} 行 · {langs}\n"
+        + (f"- 入口候选：`{pre}{ent['path']}:{ent['line']}`（{ent.get('reason', '')}）——点一下就会在左边打开并高亮这一行\n" if ent.get("path") else "")
+        + (f"- 被引用最多：`{pre}{mods[0]['path']}`（被 {mods[0]['imported_by']} 个文件引用）\n" if mods else "")
+        + "\n结构图会画成文字：\n\n```\n入口 main ──解析参数──▶ Config\n   │\n   └─▶ Core.run() ──逐条处理──▶ 输出\n```\n\n"
+        "一句话回顾：这是演示回复。\n下一站：① 定位。继续吗？"
+    )
+    for i in range(0, len(reply), 12):
+        yield {"type": "text", "text": reply[i:i + 12]}
+        time.sleep(0.01)
+
+
 def _mock(settings, system, messages, ws):
     last = messages[-1]["content"] if messages else ""
+    if ws and (ws.paper / "symbols.json").exists():
+        yield from _mock_repo(ws, last)
+        return
     fig = None
     if ws:
         for name in ("figures", "figures-auto"):

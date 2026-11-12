@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bling 精读工作台 · macOS / Linux 启动：建 .venv、缺依赖就装、启动并打开浏览器
+# Bling-Workspace（论文精读 + 代码分析）· macOS / Linux 启动：建 .venv、缺依赖就装、启动并打开浏览器
 set -e
 cd "$(dirname "$0")"
 PY=$(command -v python3 || command -v python || true)

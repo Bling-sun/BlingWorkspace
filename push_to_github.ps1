@@ -1,4 +1,4 @@
-﻿# 把本目录推到 https://github.com/Bling-sun/bling-paper-reading
+﻿# 把本目录（Bling-Workspace）推到 https://github.com/Bling-sun/bling-paper-reading（GitHub 上改名后同步改下面的 $RemoteUrl / $RepoPage）
 # 由 push_to_github.bat 调用（用本机 Codex 自带的 PowerShell 7）。
 # 优先使用 Git 的 ucrt64 / mingw64 本体，避免 cmd 启动器及凭据回调再次触发启动错误。
 # 网络请求一律显式走代理 http://127.0.0.1:7897；
@@ -15,13 +15,13 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false   # git 的退出码由下面自己判断
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
-$repo = $PSScriptRoot                                 # 即 D:\CODE\bling-paper-reading
+$repo = $PSScriptRoot                                 # 即 D:\CODE\Bling-Workspace
 $RemoteUrl = 'https://github.com/Bling-sun/bling-paper-reading.git'
 $RepoPage = 'https://github.com/Bling-sun/bling-paper-reading'
 
 # 绝不能上传的东西：.gitignore 必须有这些规则，推送前还会再查一遍要推的提交里有没有
-$MustIgnore = @('web/config.json', 'web/_uploads/', '.venv/', 'papers/', 'profile.md', '__pycache__/')
-$Forbidden = '^(web/config\.json|web/_uploads/|\.venv/|papers/|profile\.md$)|(^|/)__pycache__/'
+$MustIgnore = @('web/config.json', 'web/_uploads/', '.venv/', 'papers/', 'repos/', 'profile.md', '__pycache__/')
+$Forbidden = '^(web/config\.json|web/_uploads/|\.venv/|papers/|repos/|profile\.md$)|(^|/)__pycache__/'
 
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
 
@@ -69,7 +69,7 @@ function Get-SafeText([string]$t) {
 
 try {
     Say ''
-    Say '==== 上传到 GitHub：Bling-sun/bling-paper-reading ====' 'Cyan'
+    Say '==== Bling-Workspace · 上传到 GitHub ====' 'Cyan'
 
     # ---------- 1. Git ----------
     $script:GitExe = Find-NativeGit

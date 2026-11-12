@@ -1,26 +1,73 @@
-# bling-paper-reading
-
-Public paper/project websites and documentation sites are also supported. Paste a complete HTTP(S) URL into the web importer, or run `python scripts/fetch_paper.py https://nerfies.github.io/ --no-clone`. HTML and PDF are detected by content. Website materials include `website.md`, page snapshots, an outline, source URLs, images, and resource links, and use the existing six-station discussion and HTML notes workflow. By default the importer reads up to 5 same-host pages and attempts 20 images; customize with `--max-pages 1..20` and `--max-images 0..100`. JavaScript-only or login pages may require exporting a PDF first. Linked external papers are discovered resources, not automatically read evidence.
+# Bling-Workspace
 
 [简体中文](README.md) | **English**
 
-Let an AI agent walk you through a paper. It won't stop at a summary. It reads the paper first, the way
-someone who already understands it would, and then takes you through it one stop at a time.
+A local workbench for researchers: **paper reading** + **code analysis**. It won't stop at a summary. It reads the material first,
+the way someone who already understands it would, then walks you through it one stop at a time — showing the figure whenever it
+talks about one, and backing every claim about code with a clickable `code/file:line` reference.
 
-Give it an arXiv link. It pulls the **PDF, the LaTeX source, every figure (auto-cropped to PNG), and the official code**
-to your machine, then explains the paper in six stops. Whenever it talks about a figure, it shows you that figure.
-After each stop it asks whether you want to move on:
+| | Paper reading | Code analysis |
+|---|---|---|
+| Give it | an arXiv link / PDF / paper or project website | a GitHub / Git URL, or **a folder on your machine** |
+| It prepares | PDF, LaTeX source, every figure cropped, the official code | shallow clone (local folders are never copied), language stats, entry-point candidates, symbol index, internal import graph, dependency manifests |
+| Stops | six: ① Motivation → ② Architecture → ③ Training → ④ Data → ⑤ Information flow → ⑥ Example (optional ⑦ Results) | seven: Overview → ① Purpose → ② Structure → ③ Entry points → ④ Data → ⑤ Main flow → ⑥ Example → ⑦ Engineering |
+| Notes | `精读笔记.html` | `代码分析笔记.html` |
+| Protocol | `SKILL.md` | `references/code-reading.md` |
 
+The two are connected: inside a paper workspace, "Read the code with the code analyzer" imports the paper's official code
+(re-using the local clone if there is one), and the model maps paper modules to code while explaining structure and flow.
+
+**Quick start:** on Windows double-click `start.bat` (it installs Python if needed); on macOS / Linux run `./start.sh`.
+
+The project folder is named **`Bling-Workspace`**. For a new checkout, use `git clone https://github.com/Bling-sun/bling-paper-reading.git Bling-Workspace`.
+The home page offers separate **Paper reader** and **Code analyzer** entries sharing one library, discussions, notes and history.
+The browser opens http://127.0.0.1:8765. See [web/README.md](web/README.md). Models: your Claude / ChatGPT subscription via the local
+Claude Code / Codex CLI (no API key), or DeepSeek, the Claude API, or any OpenAI-compatible endpoint.
+
+### Analyzing a repository
+
+In the library, switch the importer to **Code repository**:
+
+- **GitHub / Git URL** — `https://github.com/owner/repo`, `…/tree/<branch>/<subdir>`, `owner/repo`, `git@github.com:…`, Gitee / GitLab.
+  Optional branch / tag / commit, subdirectory and display name. Without git, GitHub repos are downloaded as a zip.
+- **Local folder** — a full path such as `D:\CODE\my-project`. Analyzed in place, read-only: nothing is copied or modified.
+
+When reading a project website, discovered GitHub repositories appear above its text and in Info. Click **Analyze code →** beside a repository to analyze it while retaining its source website association.
+
+The left pane has Overview (size, language bar, entry points, most-imported modules, dependencies, README), Code (tree + syntax-highlighted
+viewer; select lines and "attach" or "explain this"), Symbols (searchable classes / functions), Repo map (`outline.md`) and Info
+("Re-analyze" pulls the latest commit; discussion and notes are kept). Any `code/path:line` in replies or notes opens and highlights those lines.
+
+```bash
+python3 scripts/fetch_repo.py https://github.com/pallets/flask --root repos
+python3 scripts/fetch_repo.py https://github.com/owner/repo/tree/main/src/pkg --root repos
+python3 scripts/fetch_repo.py D:/CODE/my-project --root repos --title "My project"   # local folder, not copied
+python3 scripts/fetch_repo.py repos/pallets-flask                                   # refresh
 ```
-① Motivation → ② Architecture → ③ Training (loss) → ④ Data (what one sample looks like) → ⑤ Input/output flow → ⑥ Walk one example through (against the code)
-                                                                                          (optional ⑦ Results, and where the paper stands today)
-```
 
-As it goes, it writes each stop and every question you asked into a notes file in the paper folder (`精读笔记.html`, "reading notes" — opens in any browser, with a table of contents and dark mode).
+`fetch_repo.py` uses only the standard library and never installs or runs anything from the repository. Entry points and core modules
+are heuristics (Python via AST, JS / TS / Go via imports, regex symbols for other languages); the model verifies them before relying on them.
 
-Prefer a browser to a terminal? `web/` is a companion **web app**: import → discuss the six stops next to the PDF, figures and code → curate notes → export HTML. On Windows just double-click `start.bat` in the project root (it installs Python if needed). See [web/README.md](web/README.md).
+### Seven stops for code
 
-## Six stops: what you can say after each one
+| Stop | After this stop you can tell someone |
+|---|---|
+| Overview | What it is, who it's for, tech stack, size, maturity signals, how to run it |
+| ① Purpose | What problem it solves, how you'd do it without it, what its interface looks like (CLI / library API / HTTP / UI) |
+| ② Structure | How directories and modules are layered, who depends on whom, the 3–5 files to read first |
+| ③ Entry points | What happens between running the command / sending the request and the core objects being ready; where config comes from |
+| ④ Data | Fields and types of the core data structures; who creates, mutates and consumes them |
+| ⑤ Main flow | The central call chain: order, loops, concurrency, error handling, hot spots |
+| ⑥ Example | One concrete call traced function by function, each step with file:line |
+| ⑦ Engineering | Dependencies, tests, CI, deployment; risks and tech debt; where to change things to add a feature |
+
+### Paper websites
+
+Public paper/project websites and documentation sites are supported too. Paste a complete HTTP(S) URL into the importer, or run
+`python scripts/fetch_paper.py https://nerfies.github.io/ --no-clone`. Website materials include `website.md`, page snapshots, an outline,
+source URLs, images and resource links (up to 5 same-host pages and 20 images by default; `--max-pages 1..20`, `--max-images 0..100`).
+
+## Six stops for papers: what you can say after each one
 
 | Stop | After this stop you can tell someone |
 |---|---|
@@ -48,17 +95,17 @@ Prefer a browser to a terminal? `web/` is a companion **web app**: import → di
 **Claude Code** (installed as a skill, it kicks in when you say "read this paper with me"):
 
 ```bash
-git clone https://github.com/skJack/kelip-paper-reading.git ~/.claude/skills/bling-paper-reading
+git clone https://github.com/Bling-sun/bling-paper-reading.git ~/.claude/skills/bling-workspace
 pip install pymupdf
 ```
 
-**Other AI agents** (Cursor / Codex / Copilot / your own agent): clone it into your project and have the agent read `SKILL.md`.
+**Other AI agents** (Cursor / Codex / Copilot / your own agent): clone it into your project and have the agent read `SKILL.md` for papers, `references/code-reading.md` for code.
 There's an `AGENTS.md` at the repo root, so agents that pick that file up automatically need no extra setup.
 
 The only dependencies are Python 3 and [PyMuPDF](https://pymupdf.readthedocs.io/). You need access to arxiv.org and github.com;
 Hugging Face being unreachable is fine.
 
-`SKILL.md` is written in Chinese. Any modern LLM agent reads it fine and will still talk to you in your own language.
+`SKILL.md` and `references/code-reading.md` are written in Chinese. Any modern LLM agent reads it fine and will still talk to you in your own language.
 
 ## Usage
 
@@ -98,7 +145,7 @@ you curated yourself, the auto-cropped figures go to `figures-auto/` and yours a
 cp profile.example.md profile.md
 ```
 
-Write down your field, what you already know (it'll mention those in one line), what needs groundwork first, and what kind of
+Both paper and code walkthroughs adapt to it. Write down your field, what you already know (it'll mention those in one line), what needs groundwork first, and what kind of
 scenarios you like for examples. It works without one too: the first time it reaches stop ⑥ it asks what scenario to use and
 writes the answer down for you. `profile.md` is in `.gitignore`, so it never gets committed.
 
@@ -132,12 +179,15 @@ you already have (only what's missing gets filled in). The scripts print their p
 | `SKILL.md` | The reading protocol for the agent: what each stop covers, how to handle figures and formulas, how to re-explain when something didn't land |
 | `AGENTS.md` | One-page pointer for agents that read it automatically |
 | `references/examples.md` | Examples of what each stop looks like when it's done well |
-| `references/notes-template.html` | Template for the reading notes (HTML) |
-| `web/` | Web app: import, read, discuss, take notes, export HTML |
+| `references/code-reading.md` | The code-reading protocol: seven stops, how to cite code locations and draw text diagrams |
+| `references/notes-template.html` / `code-notes-template.html` | Templates for paper notes / code-analysis notes (HTML) |
+| `web/` | Web app: library (papers, websites, repositories), import, read, discuss by stops, notes, history, export HTML |
 | `profile.example.md` | Template for your profile (copy to `profile.md`) |
 | `scripts/fetch_paper.py` | Downloads PDF / LaTeX / metadata, flattens the source, builds the outline, finds and shallow-clones the official code, runs figure extraction |
 | `scripts/extract_figures.py` | Crops every figure and table out of the PDF by caption, writes `index.md` and a contact sheet |
 | `scripts/crop.py` | Zooms into part of a figure, crops equations from a PDF page, or re-crops a bad figure |
+| `scripts/fetch_repo.py` | Clones a GitHub / Git repo (or points at a local folder), computes languages, entry points, symbols and the import graph, writes the repo map |
+| `tests/` | `python -m unittest discover -s tests` (no network, no model calls) |
 
 ## Related
 

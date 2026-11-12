@@ -1,8 +1,10 @@
-"""bling 精读工作台：bling-paper-reading 的网页端。
+"""Bling-Workspace：论文精读 + 代码分析的本地网页端。
 
     python web/server.py            # 默认 http://127.0.0.1:8765
 
-导入（调 scripts/fetch_paper.py）→ 阅读（PDF / 图表 / 大纲 / 代码）→ 分析讨论（按 SKILL.md 六站带读）→ 精读笔记 → 导出 HTML。
+论文 / 网站：导入（scripts/fetch_paper.py）→ 阅读（PDF / 图表 / 大纲 / 代码）→ 按 SKILL.md 六站带读 → 精读笔记 → 导出 HTML。
+代码仓库：导入 GitHub / Git 链接或本机文件夹（scripts/fetch_repo.py）→ 概览 / 代码 / 符号 / 仓库地图
+          → 按 references/code-reading.md 七站带读 → 代码分析笔记 → 导出 HTML。
 """
 import datetime
 import json
@@ -47,7 +49,8 @@ DEFAULTS = {
     "use_tools": True,           # 让模型自己读代码 / 原文 / 看图
     "max_paper_chars": 160000,   # 放进上下文的正文最多多少字
     "papers_root": str(REPO / "papers"),
-    "extra_papers": [],          # 在 papers_root 之外导入过的论文目录
+    "repos_root": str(REPO / "repos"),   # 代码仓库的分析目录放这里
+    "extra_papers": [],          # 在 papers_root / repos_root 之外导入过的资料目录
     "host": "127.0.0.1",
     "port": 8765,
 }
@@ -198,19 +201,36 @@ def post_profile():
     return jsonify({"ok": True})
 
 
-# ---------------- 论文库 ----------------
+# ---------------- 资料库（论文 / 网站 / 代码仓库） ----------------
+
+def _dir_setting(value, default_name):
+    """相对路径按项目根目录算；项目文件夹改过名（如 bling-paper-reading → Bling-Workspace）、
+    配置里的旧绝对路径已经不存在时，自动退回项目里的同名目录。"""
+    p = Path(os.path.expanduser(str(value or default_name)))
+    if not p.is_absolute():
+        p = REPO / p
+    if not p.exists() and p.name == default_name and (REPO / default_name).exists():
+        p = REPO / default_name
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
 
 def roots():
     s = settings()
-    root = Path(os.path.expanduser(s["papers_root"]))
-    root.mkdir(parents=True, exist_ok=True)
-    return root, [Path(p) for p in s.get("extra_papers", [])]
+    return _dir_setting(s["papers_root"], "papers"), [Path(p) for p in s.get("extra_papers", [])]
+
+
+def repos_root():
+    return _dir_setting(settings().get("repos_root"), "repos")
 
 
 def paper_dirs():
     root, extra = roots()
     found = {}
-    cands = [d for d in sorted(root.iterdir()) if d.is_dir()] + [d for d in extra if d.is_dir()]
+    rr = repos_root()
+    cands = [d for d in sorted(root.iterdir()) if d.is_dir()] + \
+            ([d for d in sorted(rr.iterdir()) if d.is_dir()] if rr.resolve() != root.resolve() else []) + \
+            [d for d in extra if d.is_dir()]
     for d in cands:
         if (d / "meta.json").exists() or (d / "paper.pdf").exists():
             slug = d.name
@@ -223,7 +243,7 @@ def paper_dirs():
 def paper_dir(slug):
     d = paper_dirs().get(slug)
     if not d:
-        abort(404, "没有这篇论文")
+        abort(404, "没有这份资料")
     return d
 
 
@@ -246,6 +266,10 @@ def load_discussion(d):
 
 def save_discussion(d, msgs):
     history_mod.write_json(d / "discussion.json", {"messages": msgs})
+
+
+def is_repo(d):
+    return load_meta(d).get("kind") == "repo"
 
 
 def snapshot(d, reason, messages=None, draft=None):
@@ -297,13 +321,19 @@ def list_papers():
             except ValueError:
                 pass
         mt = max([f.stat().st_mtime for f in (d / "discussion.json", d / "notes.json", d / "meta.json") if f.exists()] or [d.stat().st_mtime])
-        out.append({"slug": slug, "title": meta.get("title") or slug, "authors": meta.get("authors", [])[:4],
-                    "n_authors": len(meta.get("authors", [])), "published": meta.get("published", ""),
-                    "arxiv_id": meta.get("arxiv_id"), "kind": meta.get("kind", "paper"), "code": meta.get("official_code"), "figures": nfig,
-                    "has_latex": meta.get("has_latex"), "summary": (meta.get("summary") or "")[:400],
-                    "progress": progress(d), "mtime": mt, "path": str(d)})
+        item = {"slug": slug, "title": meta.get("title") or slug, "authors": meta.get("authors", [])[:4],
+                "n_authors": len(meta.get("authors", [])), "published": meta.get("published", ""),
+                "arxiv_id": meta.get("arxiv_id"), "kind": meta.get("kind", "paper"), "code": meta.get("official_code"), "figures": nfig,
+                "has_latex": meta.get("has_latex"), "summary": (meta.get("summary") or "")[:400],
+                "progress": progress(d), "mtime": mt, "path": str(d)}
+        if item["kind"] == "repo":
+            item.update({k: meta.get(k) for k in ("source", "source_url", "local_path", "subdir", "stars", "license",
+                                                  "n_files", "n_code_lines", "commit", "branch", "paper_title", "from_paper")})
+            item["languages"] = (meta.get("languages") or [])[:6]
+            item["topics"] = (meta.get("topics") or [])[:5]
+        out.append(item)
     out.sort(key=lambda x: -x["mtime"])
-    return jsonify({"papers": out, "root": str(roots()[0])})
+    return jsonify({"papers": out, "root": str(roots()[0]), "repos_root": str(repos_root())})
 
 
 @app.get("/api/papers/<slug>")
@@ -320,10 +350,27 @@ def get_paper(slug):
     msgs = load_discussion(d)
     nts = notes_mod.load(d)
     cr = context.code_root(d, meta)
-    return jsonify({"slug": slug, "path": str(d), "meta": meta, "figures": figures, "fig_dir": fig.name,
-                    "outline": context.read(d / "outline.md"), "has_pdf": (d / "paper.pdf").exists(),
-                    "code_root": str(cr) if cr else None, "messages": msgs, "notes": nts,
-                    "progress": progress(d, msgs, nts), "sections": notes_mod.SECTIONS})
+    repo = None
+    if meta.get("kind") != "repo":  # 未克隆的网页代码也能跳回已经建立的分析工作区
+        for s2, d2 in paper_dirs().items():
+            m2 = load_meta(d2)
+            if m2.get("kind") == "repo" and m2.get("from_paper") == slug:
+                repo = s2
+                break
+    return jsonify({"slug": slug, "path": str(d), "kind": meta.get("kind", "paper"), "meta": meta, "figures": figures,
+                    "fig_dir": fig.name, "outline": context.read(d / "outline.md"), "has_pdf": (d / "paper.pdf").exists(),
+                    "code_root": str(cr) if cr else None, "messages": msgs, "notes": nts, "repo_slug": repo,
+                    "note_file": notes_mod.note_file(meta), "progress": progress(d, msgs, nts),
+                    "sections": notes_mod.sections_for(meta)})
+
+
+@app.get("/api/papers/<slug>/symbols")
+def symbols(slug):
+    f = paper_dir(slug) / "symbols.json"
+    try:
+        return jsonify(json.loads(f.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return jsonify({"prefix": "code/", "files": {}})
 
 
 @app.get("/files/<slug>/<path:sub>")
@@ -366,7 +413,28 @@ def text_file(slug):
         abort(404)
     if f.stat().st_size > 3_000_000:
         return jsonify({"path": ws.display(f), "text": "（文件太大，不在网页里显示）", "big": True})
+    with open(f, "rb") as fh:
+        head = fh.read(8192)
+    if b"\x00" in head:
+        return jsonify({"path": ws.display(f), "text": "（二进制文件，不在网页里显示）", "big": True})
     return jsonify({"path": ws.display(f), "text": f.read_text(encoding="utf-8", errors="replace")})
+
+
+@app.get("/api/papers/<slug>/raw")
+def raw_file(slug):
+    """代码目录里的图片 / PDF（代码可能在资料目录外，比如本机文件夹）。只读。"""
+    d = paper_dir(slug)
+    ws = context.Workspace(d, load_meta(d))
+    try:
+        f = ws.resolve(request.args.get("path", ""))
+    except context.ToolError as e:
+        abort(400, str(e))
+    if not f.is_file() or f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf", ".bmp", ".ico"):
+        abort(404)
+    resp = send_file(f)
+    if f.suffix.lower() == ".svg":  # 仓库里的 SVG 可能带脚本：只当图片看
+        resp.headers["Content-Security-Policy"] = "script-src 'none'"
+    return resp
 
 
 # ---------------- 导入 / 补代码 / 重裁图：后台任务 ----------------
@@ -378,41 +446,46 @@ def run_job(cmd, cwd, on_done=None):
 
     def work():
         env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", PYTHONWARNINGS="ignore")
+        status = "failed"
         try:
-            p = subprocess.Popen([str(c) for c in cmd], cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-            for raw in p.stdout:
-                line = raw.decode("utf-8", errors="replace").rstrip()
-                job["log"].append(line)
-                m = re.match(r"^\s*→\s*(.+)$", line)
-                if m:
-                    job["dest"] = m.group(1).strip()
-            p.wait()
-            job["status"] = "done" if p.returncode == 0 else "failed"
+            with subprocess.Popen([str(c) for c in cmd], cwd=str(cwd), stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, env=env) as p:
+                for raw in p.stdout:
+                    line = raw.decode("utf-8", errors="replace").rstrip()
+                    job["log"].append(line)
+                    m = re.match(r"^\s*→\s*(.+)$", line)
+                    if m:
+                        job["dest"] = m.group(1).strip()
+                p.wait()
+                status = "done" if p.returncode == 0 else "failed"
+            if status == "done":
+                if on_done:
+                    on_done(job)
+                if job["dest"]:
+                    dest = Path(job["dest"]).resolve()
+                    for slug, d in paper_dirs().items():
+                        if d.resolve() == dest:
+                            job["slug"] = slug
+                            break
         except Exception as e:  # noqa: BLE001
             job["log"].append(f"✗ {e}")
-            job["status"] = "failed"
-        if on_done:
-            try:
-                on_done(job)
-            except Exception as e:  # noqa: BLE001
-                job["log"].append(f"✗ {e}")
-        if job["dest"]:
-            dest = Path(job["dest"])
-            for slug, d in paper_dirs().items():
-                if d.resolve() == dest.resolve():
-                    job["slug"] = slug
+            status = "failed"
+        finally:
+            # 发布完成状态之前先登记资料并生成跳转地址，避免轮询拿到没有 slug 的完成任务。
+            job["status"] = status
 
     threading.Thread(target=work, daemon=True).start()
     return job
 
 
 def register_extra(job):
-    """导入的是 papers_root 之外的已有目录：记进 extra_papers，库里才看得到。"""
+    """导入的是 papers_root / repos_root 之外的已有目录：记进 extra_papers，库里才看得到。"""
     if not job.get("dest"):
         return
     dest = Path(job["dest"]).resolve()
-    root = roots()[0].resolve()
-    if dest.parent != root:
+    if not (dest / "meta.json").exists():
+        return
+    if dest.parent not in (roots()[0].resolve(), repos_root().resolve()):
         s = settings()
         if str(dest) not in s["extra_papers"]:
             s["extra_papers"].append(str(dest))
@@ -425,6 +498,14 @@ def import_paper():
     f = request.files.get("pdf")
     form = request.form if (f or request.form) else (request.get_json(silent=True) or {})
     target = (form.get("target") or "").strip()
+    if form.get("type") == "repo":  # 代码仓库：GitHub / Git 链接或本机文件夹
+        if not target:
+            return jsonify({"error": "给一个 GitHub / Git 链接，或者本机代码文件夹的完整路径"}), 400
+        cmd = [sys.executable, "-u", SCRIPTS / "fetch_repo.py", target, "--root", repos_root()]
+        for k in ("slug", "ref", "subdir", "title"):
+            if (form.get(k) or "").strip():
+                cmd += [f"--{k}", form[k].strip()]
+        return jsonify(run_job(cmd, repos_root(), on_done=register_extra))
     if f and f.filename:
         up = UPLOADS / uuid.uuid4().hex[:8]
         up.mkdir(parents=True, exist_ok=True)
@@ -446,9 +527,46 @@ def import_paper():
     return jsonify(job)
 
 
+@app.post("/api/papers/<slug>/analyze-code")
+def analyze_code(slug):
+    """论文工作区 → 把它的官方代码在代码分析器里打开（已克隆就直接分析本地那份，不重复下载）。"""
+    d = paper_dir(slug)
+    meta = load_meta(d)
+    if meta.get("kind") == "repo":
+        return jsonify({"error": "这已经是代码仓库"}), 400
+    selected = (request.get_json(silent=True) or {}).get("url")
+    if selected and (not isinstance(selected, str) or not re.match(
+            r"^https://github\.com/[\w.-]+/[\w.-]+(?:[/?#]|$)", selected, re.I)):
+        return jsonify({"error": "请选择完整的 GitHub 仓库链接"}), 400
+    cr = context.code_root(d, meta) if not selected else None
+    url = meta.get("official_code") or ""
+    target = selected or (str(cr) if cr else url)
+    if not target:
+        return jsonify({"error": "这篇还没有代码：先在「代码 / 文件」里补上仓库地址"}), 400
+    name = url.rstrip("/").split("/")[-1].removesuffix(".git") if url else ""
+    cmd = [sys.executable, "-u", SCRIPTS / "fetch_repo.py", target, "--root", repos_root(), "--from-paper", slug,
+           "--paper-title", meta.get("title") or slug]
+    if cr and name:
+        cmd += ["--title", name, "--slug", re.sub(r"[^\w.-]+", "-", f"{name}-{slug}")[:80].lower()]
+    elif cr:
+        cmd += ["--title", f"{meta.get('title') or slug} · 代码", "--slug", f"code-{slug}"[:80]]
+    return jsonify(run_job(cmd, repos_root()))
+
+
+@app.post("/api/papers/<slug>/reanalyze")
+def reanalyze(slug):
+    """代码仓库：拉最新提交（克隆的）并重新分析；讨论和笔记保留。"""
+    d = paper_dir(slug)
+    if not is_repo(d):
+        return jsonify({"error": "只有代码仓库能重新分析"}), 400
+    return jsonify(run_job([sys.executable, "-u", SCRIPTS / "fetch_repo.py", d], repos_root()))
+
+
 @app.post("/api/papers/<slug>/code")
 def add_code(slug):
     d = paper_dir(slug)
+    if is_repo(d):
+        return jsonify({"error": "代码仓库请用「重新分析」"}), 400
     url = (request.get_json(force=True).get("url") or "").strip()
     if not url:
         return jsonify({"error": "缺少仓库地址"}), 400
@@ -458,8 +576,8 @@ def add_code(slug):
 @app.post("/api/papers/<slug>/refigures")
 def refigures(slug):
     d = paper_dir(slug)
-    if load_meta(d).get("kind") == "website":
-        return jsonify({"error": "网站图片为原图；要重新抓取，请重新导入该网站或资料目录。"}), 400
+    if load_meta(d).get("kind") in ("website", "repo"):
+        return jsonify({"error": "这类资料没有可重裁的 PDF 图表。"}), 400
     return jsonify(run_job([sys.executable, "-u", SCRIPTS / "extract_figures.py", d], roots()[0]))
 
 
@@ -484,6 +602,7 @@ def now():
 
 def to_llm_messages(d, msgs, keep=40, image_turns=2):
     """讨论记录 → 模型消息。只保留最近 keep 条；只有最近 image_turns 条带图的用户消息真的把图发过去。"""
+    names = notes_mod.station_names(load_meta(d))
     msgs = [m for m in msgs if m.get("content") or m.get("images") or m.get("attachments")][-keep:]
     while msgs and msgs[0]["role"] != "user":
         msgs = msgs[1:]
@@ -492,7 +611,7 @@ def to_llm_messages(d, msgs, keep=40, image_turns=2):
     for i, m in enumerate(msgs):
         text = m.get("content", "")
         if m["role"] == "user":
-            st = notes_mod.STATION_NAMES.get(str(m.get("station")), "")
+            st = names.get(str(m.get("station")), "")
             for a in m.get("attachments") or []:
                 text += f"\n\n[附：{a.get('path')}" + (f" 第 {a['start']}–{a['end']} 行" if a.get("start") else "") + "]\n```\n" + a.get("text", "") + "\n```"
             if m.get("images"):
@@ -602,23 +721,49 @@ SECTION_GUIDE = {
 }
 
 
-def draft_instruction(target, qa_pair=None):
-    title = notes_mod.TITLES.get(target, target)
-    common = ("只输出这一节的正文 Markdown，不要写这一节的标题、不要开场白和结束语。"
-              "是整理过的要点，不是把回复原样粘贴。图写成 `![图 N · 一句说明](figures/fig-NN.png)`（用图表索引里的真实路径），"
-              "公式放代码块用 Unicode，表格用 Markdown 表格。论文写的 / 代码看到的 / 推测的，要分清。")
+REPO_SECTION_GUIDE = {
+    "basic": "写「项目概览」：4–7 条列表——一句话定位（给谁用、解决什么）；技术栈（语言 / 框架 / 关键依赖）；规模（文件数、代码行、主要目录）；"
+             "成熟度信号（测试、CI、文档、最近提交、star，看得到才写）；怎么装、怎么跑（照 README，标明没实际运行）；许可证。",
+    "map": "写「阅读地图」：一张 Markdown 表，列为 站 | 这一站讲清楚什么（一句话） | 先看的文件 / 符号（`code/路径:行`），① 定位 到 ⑦ 工程 各一行。"
+           "可以先用工具查准位置。",
+    "s1": "要点：没有它时要怎么做、痛在哪；它的做法（一句话）；对外接口表 | 入口 | 形式（CLI / 库 API / HTTP / 页面） | 例子 |；一个最小用法。",
+    "s2": "要点：一张文字架构图（代码块，分层 + 依赖箭头）；模块表 | 目录 / 模块 | 职责 | 关键文件 | 依赖谁 |；最值得先读的 3–5 个文件。",
+    "s3": "要点：启动链路按执行顺序，每步一行「做了什么 → `code/路径:行`」；配置项表 | 名字 | 默认值 | 从哪读 | 作用 |。",
+    "s4": "要点：每个核心数据结构一张表 | 字段 | 类型 / 形状 | 含义 | 例子值 |；它从哪创建、在哪被修改、最后被谁消费。",
+    "s5": "要点：核心调用链（代码块，缩进表示调用层级，标 `文件:行`）；关键分支、循环、并发、异常处理、性能热点。",
+    "s6": "要点：场景（一条具体命令 / 请求 / 输入）；按时间顺序每一步：手里有什么 → 调了哪个函数（`code/路径:行`）→ 变成什么；最后一行串起整条链。",
+    "s7": "要点：依赖表 | 名字 | 用途 | 是否核心 |；测试覆盖了什么 / 没覆盖什么；CI 和构建、部署；风险和技术债（给位置）；「想加 X 功能要改这几处」的具体例子。",
+    "code": "写「关键文件索引」：一张表 | 文件 | 作用 | 关键符号（类 / 函数:行） | 什么时候需要看 |，按重要性排序，10–25 行，可以用工具核对行号。",
+}
+
+
+def draft_instruction(target, qa_pair=None, meta=None):
+    repo = notes_mod.is_repo(meta)
+    title = notes_mod.titles_for(meta).get(target, target)
+    names = notes_mod.station_names(meta)
+    label = notes_mod.note_label(meta)
+    if repo:
+        common = ("只输出这一节的正文 Markdown，不要写这一节的标题、不要开场白和结束语。"
+                  "是整理过的要点，不是把回复原样粘贴。代码位置写成 `code/路径:行号`，结构图 / 调用链放代码块，表格用 Markdown 表格。"
+                  "代码里看到的 / README 写的 / 推测的，要分清。")
+        guide = REPO_SECTION_GUIDE
+    else:
+        common = ("只输出这一节的正文 Markdown，不要写这一节的标题、不要开场白和结束语。"
+                  "是整理过的要点，不是把回复原样粘贴。图写成 `![图 N · 一句说明](figures/fig-NN.png)`（用图表索引里的真实路径），"
+                  "公式放代码块用 Unicode，表格用 Markdown 表格。论文写的 / 代码看到的 / 推测的，要分清。")
+        guide = SECTION_GUIDE
     if target == "qa" and qa_pair:
         q, a = qa_pair
-        st = notes_mod.STATION_NAMES.get(str(q.get("station")), "")
-        return ("把下面这组问答压成精读笔记「问答」里的一条，格式严格是：\n"
+        st = names.get(str(q.get("station")), "")
+        return (f"把下面这组问答压成{label}「问答」里的一条，格式严格是：\n"
                 f"- **Q（{st or '讨论'}）**：用户原话（可略删口语）\n  **A**：最后讲通的那个版本，几句话\n"
                 "只输出这一条。\n\n【问】\n" + q.get("content", "") + "\n\n【答】\n" + a.get("content", ""))
     if target == "qa":
-        return "把我们讨论里我问过的问题整理成精读笔记的「问答」：每条格式 `- **Q（第 N 站）**：原话\\n  **A**：最后讲通的答案，几句话`，按时间顺序。只输出列表。"
+        return f"把我们讨论里我问过的问题整理成{label}的「问答」：每条格式 `- **Q（第 N 站）**：原话\\n  **A**：最后讲通的答案，几句话`，按时间顺序。只输出列表。"
     if target in ("basic", "map", "code"):
-        return f"现在写精读笔记的「{title}」这一节。{SECTION_GUIDE[target]}\n\n{common}"
-    return (f"把我们在「{title}」这一站的讨论整理成精读笔记里「{title}」这一节。{SECTION_GUIDE.get(target, '')}"
-            f"讨论里没讲到的内容可以根据论文补上，但要简洁。\n\n{common}")
+        return f"现在写{label}的「{title}」这一节。{guide[target]}\n\n{common}"
+    return (f"把我们在「{title}」这一站的讨论整理成{label}里「{title}」这一节。{guide.get(target, '')}"
+            f"讨论里没讲到的内容可以根据{'代码' if repo else '论文'}补上，但要简洁。\n\n{common}")
 
 
 @app.get("/api/papers/<slug>/notes")
@@ -664,7 +809,7 @@ def draft_notes(slug):
         if st and not any(m["role"] == "assistant" for m in history):
             history = msgs  # 这一站还没单独讨论过，就拿全部讨论
     llm_msgs = to_llm_messages(d, history, keep=30, image_turns=0)
-    llm_msgs.append({"role": "user", "content": draft_instruction(target, qa_pair), "images": []})
+    llm_msgs.append({"role": "user", "content": draft_instruction(target, qa_pair, load_meta(d)), "images": []})
     if len(llm_msgs) >= 2 and llm_msgs[-2]["role"] == "user":
         llm_msgs[-2]["content"] += "\n\n" + llm_msgs.pop()["content"]
 
@@ -691,9 +836,10 @@ def export(slug):
     meta = load_meta(d)
     transcript = load_discussion(d) if request.args.get("transcript") == "1" else None
     html = notes_mod.render(d, notes_mod.load(d), meta, mode="standalone", discussion=transcript)
-    name = re.sub(r'[\\/:*?"<>|]+', "_", f"精读笔记-{meta.get('title') or slug}")[:120] + ".html"
-    if request.args.get("save") == "1":  # 同时在论文目录里留一份自包含的
-        (d / "精读笔记-导出.html").write_text(html, encoding="utf-8")
+    label = notes_mod.note_label(meta)
+    name = re.sub(r'[\\/:*?"<>|]+', "_", f"{label}-{meta.get('title') or slug}")[:120] + ".html"
+    if request.args.get("save") == "1":  # 同时在资料目录里留一份自包含的
+        (d / f"{label}-导出.html").write_text(html, encoding="utf-8")
     from urllib.parse import quote
     return Response(html, mimetype="text/html", headers={
         "Content-Disposition": f"attachment; filename=notes.html; filename*=UTF-8''{quote(name)}"})
@@ -742,7 +888,7 @@ def _open_when_ready(host, port, url):
 def main():
     import argparse
     s = settings()
-    ap = argparse.ArgumentParser(description="bling 精读工作台")
+    ap = argparse.ArgumentParser(description="Bling-Workspace：论文精读 + 代码分析")
     ap.add_argument("--host", default=s["host"])
     ap.add_argument("--port", type=int, default=s["port"])
     ap.add_argument("--open", action="store_true", help="启动后打开浏览器")
@@ -751,7 +897,8 @@ def main():
     if port != a.port:
         print(f"端口 {a.port} 被占用，改用 {port}")
     url = f"http://{'127.0.0.1' if a.host in ('0.0.0.0', '') else a.host}:{port}"
-    print(f"\n  bling 精读工作台已启动 → {url}\n  论文库：{roots()[0]}\n  浏览器没自动打开的话，手动访问上面的地址。关掉这个窗口就停止。\n")
+    print(f"\n  Bling-Workspace 已启动 → {url}\n  论文 / 网站：{roots()[0]}\n  代码仓库：{repos_root()}\n"
+          "  浏览器没自动打开的话，手动访问上面的地址。关掉这个窗口就停止。\n")
     if a.open:
         threading.Thread(target=_open_when_ready, args=("127.0.0.1", port, url), daemon=True).start()
     app.run(host=a.host, port=port, threaded=True, debug=False)

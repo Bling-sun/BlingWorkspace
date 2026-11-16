@@ -36,6 +36,9 @@ import context  # noqa: E402
 import llm  # noqa: E402
 import notes as notes_mod  # noqa: E402
 import history as history_mod  # noqa: E402
+import works  # noqa: E402
+import knowledge
+import learning_export
 
 WEB = Path(__file__).resolve().parent
 REPO = WEB.parent
@@ -53,6 +56,7 @@ DEFAULTS = {
     "papers_root": str(REPO / "papers"),
     "repos_root": str(REPO / "repos"),   # 代码仓库的分析目录放这里
     "extra_papers": [],          # 在 papers_root / repos_root 之外导入过的资料目录
+    "work_groups": [],            # 一个工作入口；各材料记录分别保留
     "deleted_items": [],          # 软删除：全部本机文件保留，可恢复
     "network_proxy": "auto",      # auto / direct / HTTP 代理地址
     "host": "127.0.0.1",
@@ -138,6 +142,8 @@ def get_settings():
                 "codex_cli": llm.find_cli("codex", profile_of(raw, "codex_cli"))}
     out = {k: s[k] for k in DEFAULTS}
     out.update(provider=s["provider"], model=s["model"], profiles=profiles, detected=detected)
+    if s["provider"] == "claude_cli":
+        out["claude_auth"] = llm.claude_auth_status(profile_of(raw, "claude_cli"))
     return jsonify(out)
 
 
@@ -146,7 +152,7 @@ def post_settings():
     s = settings()
     body = request.get_json(force=True)
     for k in DEFAULTS:
-        if k in body and k not in ("extra_papers", "deleted_items", "host", "port"):
+        if k in body and k not in ("extra_papers", "deleted_items", "work_groups", "host", "port"):
             s[k] = body[k]
     try:
         s["network_proxy"] = networking.validate_proxy(s["network_proxy"])
@@ -171,6 +177,11 @@ def post_settings():
     s["profiles"][s["provider"]] = prof
     save_settings(s)
     return get_settings()
+
+
+@app.get("/api/settings/claude-auth")
+def get_claude_auth():
+    return jsonify(llm.claude_auth_status(profile_of(_raw(), "claude_cli")))
 
 
 @app.post("/api/settings/test")
@@ -239,7 +250,7 @@ def paper_dirs():
     root, extra = roots()
     found = {}
     rr = repos_root()
-    deleted = {os.path.normcase(str(Path(item["path"]).resolve())) for item in settings().get("deleted_items", [])}
+    deleted = {works.path_key(path) for item in settings().get("deleted_items", []) for path in works.deleted_paths(item)}
     cands = [d for d in sorted(root.iterdir()) if d.is_dir()] + \
             ([d for d in sorted(rr.iterdir()) if d.is_dir()] if rr.resolve() != root.resolve() else []) + \
             [d for d in extra if d.is_dir()]
@@ -263,9 +274,32 @@ def paper_dir(slug):
 
 def load_meta(d):
     try:
-        return json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        # Internal mounts may only come from our validated group registry, never imported metadata.
+        meta.pop("_work_members", None)
+        meta.pop("_work_title", None)
+        return meta
     except (OSError, ValueError):
         return {"title": d.name}
+
+
+def work_group_views(directories=None):
+    return works.group_views(settings().get("work_groups", []), paper_dirs() if directories is None else directories, load_meta)
+
+
+def group_for_directory(directory):
+    key = works.path_key(directory)
+    return next((g for g in work_group_views() if any(works.path_key(m["path"]) == key for m in g["members"])), None)
+
+
+def reading_meta(directory):
+    meta = load_meta(directory)
+    group = group_for_directory(directory)
+    if group:
+        meta["_work_title"] = group["title"]
+        meta["_work_members"] = [dict(m, code_dir=str(context.code_root(m["path"], load_meta(Path(m["path"]))) or ""))
+                                 for m in group["members"]]
+    return meta
 
 
 def load_discussion(d):
@@ -347,7 +381,85 @@ def list_papers():
             item["topics"] = (meta.get("topics") or [])[:5]
         out.append(item)
     out.sort(key=lambda x: -x["mtime"])
-    return jsonify({"papers": out, "root": str(roots()[0]), "repos_root": str(repos_root())})
+    groups = work_group_views()
+    membership = {m["slug"]: group["id"] for group in groups for m in group["members"]}
+    for item in out:
+        item["work_id"] = membership.get(item["slug"])
+    return jsonify({"papers": out, "work_groups": groups, "root": str(roots()[0]), "repos_root": str(repos_root())})
+
+
+@app.get("/api/work-groups")
+def list_work_groups():
+    directories = paper_dirs()
+    groups = settings().get("work_groups", [])
+    return jsonify({"groups": works.group_views(groups, directories, load_meta),
+                    "suggestions": works.suggestions(directories, load_meta, groups)})
+
+
+@app.post("/api/work-groups")
+@app.put("/api/work-groups/<group_id>")
+def save_work_group(group_id=None):
+    body = request.get_json(force=True)
+    if not isinstance(body, dict) or not isinstance(body.get("slugs"), list) or not all(isinstance(s, str) for s in body["slugs"]):
+        return jsonify({"error": "请选择要合并的材料"}), 400
+    with _library_lock:
+        s = settings()
+        groups = s.get("work_groups", [])
+        previous = next((g for g in groups if g["id"] == group_id), None)
+        if group_id and not previous:
+            abort(404, "没有这个工作")
+        directories = paper_dirs()
+        slugs = list(dict.fromkeys(body["slugs"]))
+        if any(slug not in directories for slug in slugs):
+            return jsonify({"error": "材料已被删除或不存在，请刷新后重试"}), 400
+        paths = [str(directories[slug].resolve()) for slug in slugs]
+        active_keys = {works.path_key(d) for d in directories.values()}
+        # Retain links to recycled or temporarily unavailable members while editing a work.
+        paths += [path for path in (previous or {}).get("members", []) if works.path_key(path) not in active_keys]
+        if not 2 <= len(paths) <= 20 or not slugs:
+            return jsonify({"error": "一个工作需要 2–20 份材料"}), 400
+        occupied = {works.path_key(path) for group in groups if group["id"] != group_id for path in group["members"]}
+        if any(works.path_key(path) in occupied for path in paths):
+            return jsonify({"error": "所选材料已属于另一个工作，请先解除该工作的合并"}), 409
+        primary = body.get("primary_slug") or next((slug for slug in slugs if load_meta(directories[slug]).get("kind", "paper") == "paper"), slugs[0])
+        if primary not in slugs:
+            return jsonify({"error": "默认打开的材料必须属于这个工作"}), 400
+        title = body.get("title") or load_meta(directories[primary]).get("title") or primary
+        if not isinstance(title, str) or not title.strip() or len(title) > 160:
+            return jsonify({"error": "工作名称请填写 1–160 个字符"}), 400
+        group = {"id": group_id or uuid.uuid4().hex[:12], "title": " ".join(title.split()), "members": paths,
+                 "primary": str(directories[primary].resolve()), "created": (previous or {}).get("created") or now()}
+        s["work_groups"] = [g for g in groups if g["id"] != group_id] + [group]
+        save_settings(s)
+        view = next(g for g in work_group_views() if g["id"] == group["id"])
+    return jsonify({"group": view})
+
+
+@app.delete("/api/work-groups/<group_id>")
+def dissolve_work_group(group_id):
+    with _library_lock:
+        s = settings()
+        groups = s.get("work_groups", [])
+        if not any(g["id"] == group_id for g in groups):
+            abort(404, "没有这个工作")
+        s["work_groups"] = [g for g in groups if g["id"] != group_id]
+        save_settings(s)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/work-groups/<group_id>/trash")
+def trash_work_group(group_id):
+    with _library_lock:
+        group = next((g for g in work_group_views() if g["id"] == group_id), None)
+        if not group or not group["members"]:
+            abort(404, "没有可删除的工作材料")
+        primary = next(m for m in group["members"] if m["slug"] == group["primary_slug"])
+        item = {"id": uuid.uuid4().hex[:12], "path": primary["path"], "paths": [m["path"] for m in group["members"]],
+                "title": group["title"], "kind": "work", "group_id": group_id, "deleted_at": now()}
+        s = settings()
+        s["deleted_items"] = [*s.get("deleted_items", []), item]
+        save_settings(s)
+    return jsonify({"ok": True, "item": item})
 
 
 @app.get("/api/papers/<slug>")
@@ -363,9 +475,10 @@ def get_paper(slug):
             pass
     msgs = load_discussion(d)
     nts = notes_mod.load(d)
-    cr = context.code_root(d, meta)
-    repo = None
-    if meta.get("kind") != "repo":  # 未克隆的网页代码也能跳回已经建立的分析工作区
+    cr = context.code_root(d, reading_meta(d))
+    work = group_for_directory(d)
+    repo = next((m["slug"] for m in work["members"] if m["kind"] == "repo"), None) if work and meta.get("kind") != "repo" else None
+    if meta.get("kind") != "repo" and not repo:  # 未克隆的网页代码也能跳回已经建立的分析工作区
         for s2, d2 in paper_dirs().items():
             m2 = load_meta(d2)
             if m2.get("kind") == "repo" and m2.get("from_paper") == slug:
@@ -373,9 +486,54 @@ def get_paper(slug):
                 break
     return jsonify({"slug": slug, "path": str(d), "kind": meta.get("kind", "paper"), "meta": meta, "figures": figures,
                     "fig_dir": fig.name, "outline": context.read(d / "outline.md"), "has_pdf": (d / "paper.pdf").exists(),
-                    "code_root": str(cr) if cr else None, "messages": msgs, "notes": nts, "repo_slug": repo,
+                    "code_root": str(cr) if cr else None, "messages": msgs, "notes": nts, "repo_slug": repo, "work_group": work,
                     "note_file": notes_mod.note_file(meta), "progress": progress(d, msgs, nts),
                     "sections": notes_mod.sections_for(meta)})
+
+
+@app.post("/api/knowledge")
+def create_knowledge():
+    body = request.get_json(force=True)
+    title = body.get("title")
+    if not isinstance(title, str) or not title.strip() or len(title) > 160:
+        return jsonify({"error": "请填写 1–160 字的知识点名称"}), 400
+    for field in ("domain", "level", "goal", "learning_mode"):
+        if not isinstance(body.get(field, ""), str) or len(body.get(field, "")) > 4000:
+            return jsonify({"error": "学习设定过长或格式不正确"}), 400
+    urls = body.get("source_urls", [])
+    from fetch_website import web_url
+    if not isinstance(urls, list) or len(urls) > 5 or any(not isinstance(u, str) or not web_url(u) for u in urls):
+        return jsonify({"error": "来源最多 5 个，只支持完整的 HTTP / HTTPS 链接"}), 400
+    with _library_lock:
+        slug = "knowledge-" + uuid.uuid4().hex[:12]
+        d = roots()[0] / slug
+        d.mkdir()
+        meta = {"kind": "knowledge", "title": title.strip(), "created": now(),
+                "domain": body.get("domain", "具身智能 / AI"), "level": body.get("level", "循序渐进"),
+                "goal": body.get("goal", "能独立解释、推导、实现与迁移应用"),
+                "learning_mode": body.get("learning_mode", "基础 + 前沿"), "source_urls": [web_url(u) for u in urls],
+                "summary": body.get("goal", "知识点深入解析：先修诊断、原理推导、代码实验、前沿证据与自测纠错")}
+        history_mod.write_json(d / "meta.json", meta)
+        (d / "outline.md").write_text("# " + title.strip() + "\n\n" + "\n".join("- " + t for _, t in knowledge.SECTIONS), encoding="utf-8")
+    return jsonify({"slug": slug}), 201
+
+
+@app.post("/api/papers/<slug>/knowledge-sources")
+def refresh_knowledge_sources(slug):
+    d = paper_dir(slug)
+    if load_meta(d).get("kind") != "knowledge":
+        return jsonify({"error": "仅知识点学习支持来源快照"}), 400
+    body = request.get_json(silent=True) or {}
+    if "source_urls" in body:
+        from fetch_website import web_url
+        urls = body["source_urls"]
+        if not isinstance(urls, list) or len(urls) > 5 or any(not isinstance(u, str) or not web_url(u) for u in urls):
+            return jsonify({"error": "来源最多 5 个，只支持完整 HTTP / HTTPS 链接"}), 400
+        with lock(slug):
+            meta = load_meta(d)
+            meta["source_urls"] = [web_url(u) for u in urls]
+            history_mod.write_json(d / "meta.json", meta)
+    return jsonify(run_job([sys.executable, "-u", WEB / "knowledge.py", d], d))
 
 
 @app.delete("/api/papers/<slug>")
@@ -405,7 +563,7 @@ def restore_paper(item_id):
         if not item:
             abort(404, "没有这份回收记录")
         dest = Path(item["path"]).resolve()
-        if not dest.is_dir():
+        if any(not Path(path).is_dir() for path in works.deleted_paths(item)):
             return jsonify({"error": "原资料目录已被移动或删除，请重新导入"}), 409
         s["deleted_items"] = [it for it in s["deleted_items"] if it["id"] != item_id]
         save_settings(s)
@@ -425,6 +583,16 @@ def symbols(slug):
 @app.get("/files/<slug>/<path:sub>")
 def files(slug, sub):
     d = paper_dir(slug).resolve()
+    if sub.startswith("materials/"):
+        try:
+            f = context.Workspace(d, reading_meta(d)).resolve(sub)
+        except context.ToolError:
+            abort(404)
+        if not f.is_file() or f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf"):
+            abort(404)
+        response = send_file(f)
+        response.headers["Content-Security-Policy"] = "sandbox; script-src 'none'"
+        return response
     f = (d / sub).resolve()
     if d not in f.parents or not f.is_file():
         abort(404)
@@ -434,8 +602,10 @@ def files(slug, sub):
 @app.get("/api/papers/<slug>/tree")
 def tree(slug):
     d = paper_dir(slug)
-    ws = context.Workspace(d, load_meta(d))
+    ws = context.Workspace(d, reading_meta(d))
     rel = request.args.get("path", "code")
+    if rel.strip("/") == "materials":
+        return jsonify({"path": "materials", "items": [{"name": name, "path": "materials/" + name, "dir": True, "size": None} for name in ws.materials]})
     try:
         p = ws.resolve(rel)
     except context.ToolError as e:
@@ -453,7 +623,7 @@ def tree(slug):
 @app.get("/api/papers/<slug>/text")
 def text_file(slug):
     d = paper_dir(slug)
-    ws = context.Workspace(d, load_meta(d))
+    ws = context.Workspace(d, reading_meta(d))
     try:
         f = ws.resolve(request.args.get("path", ""))
     except context.ToolError as e:
@@ -473,7 +643,7 @@ def text_file(slug):
 def raw_file(slug):
     """代码目录里的图片 / PDF（代码可能在资料目录外，比如本机文件夹）。只读。"""
     d = paper_dir(slug)
-    ws = context.Workspace(d, load_meta(d))
+    ws = context.Workspace(d, reading_meta(d))
     try:
         f = ws.resolve(request.args.get("path", ""))
     except context.ToolError as e:
@@ -539,7 +709,12 @@ def register_extra(job):
     with _library_lock:
         s = settings()
         removed = s.get("deleted_items", [])
-        s["deleted_items"] = [it for it in removed if Path(it["path"]).resolve() != dest]
+        retained = []
+        for item in removed:
+            remaining = [path for path in works.deleted_paths(item) if Path(path).resolve() != dest]
+            if remaining:
+                retained.append(dict(item, paths=remaining, path=remaining[0]) if "paths" in item else item)
+        s["deleted_items"] = retained
         changed = removed != s["deleted_items"]
         if dest.parent not in (roots()[0].resolve(), repos_root().resolve()) and str(dest) not in s["extra_papers"]:
             s["extra_papers"].append(str(dest))
@@ -632,7 +807,7 @@ def add_code(slug):
 @app.post("/api/papers/<slug>/refigures")
 def refigures(slug):
     d = paper_dir(slug)
-    if load_meta(d).get("kind") in ("website", "repo"):
+    if load_meta(d).get("kind") in ("website", "repo", "knowledge"):
         return jsonify({"error": "这类资料没有可重裁的 PDF 图表。"}), 400
     return jsonify(run_job([sys.executable, "-u", SCRIPTS / "extract_figures.py", d], roots()[0]))
 
@@ -692,7 +867,7 @@ def to_llm_messages(d, msgs, keep=40, image_turns=2):
 
 def run_stream(d, slug, msgs_for_llm, on_finish):
     s = settings()
-    meta = load_meta(d)
+    meta = reading_meta(d)
     system = context.build_system(d, meta, s)
     ws = context.Workspace(d, meta)
     acc, tools, err = [], [], None
@@ -794,6 +969,8 @@ REPO_SECTION_GUIDE = {
 
 
 def draft_instruction(target, qa_pair=None, meta=None):
+    if meta and meta.get("kind") == "knowledge" and not qa_pair:
+        return knowledge.draft_instruction(target)
     repo = notes_mod.is_repo(meta)
     title = notes_mod.titles_for(meta).get(target, target)
     names = notes_mod.station_names(meta)
@@ -833,7 +1010,7 @@ def put_notes(slug):
     body = request.get_json(force=True)
     with lock(slug):
         snapshot(d, "before_notes")
-        n = notes_mod.save(d, body.get("sections", {}), load_meta(d))
+        n = notes_mod.save(d, body.get("sections", {}), reading_meta(d))
         snapshot(d, "notes")
     return jsonify(n)
 
@@ -882,23 +1059,115 @@ def draft_notes(slug):
 @app.get("/api/papers/<slug>/notes/view")
 def view_notes(slug):
     d = paper_dir(slug)
-    html = notes_mod.render(d, notes_mod.load(d), load_meta(d), mode="web", slug=slug)
+    html = notes_mod.render(d, notes_mod.load(d), reading_meta(d), mode="web", slug=slug)
     return Response(html, mimetype="text/html")
+
+
+def export_response(content, title, fmt):
+    from urllib.parse import quote
+    name = re.sub(r'[\\/:*?"<>|]+', "_", title)[:120] + "." + fmt
+    return Response(content, content_type=("text/plain; charset=utf-8" if fmt == "tex" else "text/html; charset=utf-8"),
+                    headers={"Content-Disposition": f"attachment; filename=learning.{fmt}; filename*=UTF-8''{quote(name)}"})
 
 
 @app.get("/api/papers/<slug>/export")
 def export(slug):
     d = paper_dir(slug)
-    meta = load_meta(d)
-    transcript = load_discussion(d) if request.args.get("transcript") == "1" else None
-    html = notes_mod.render(d, notes_mod.load(d), meta, mode="standalone", discussion=transcript)
-    label = notes_mod.note_label(meta)
-    name = re.sub(r'[\\/:*?"<>|]+', "_", f"{label}-{meta.get('title') or slug}")[:120] + ".html"
-    if request.args.get("save") == "1":  # 同时在资料目录里留一份自包含的
-        (d / f"{label}-导出.html").write_text(html, encoding="utf-8")
-    from urllib.parse import quote
-    return Response(html, mimetype="text/html", headers={
-        "Content-Disposition": f"attachment; filename=notes.html; filename*=UTF-8''{quote(name)}"})
+    meta = reading_meta(d)
+    fmt = request.args.get("format", "html")
+    if fmt not in ("html", "tex"):
+        return jsonify({"error": "只支持 HTML 或 TeX"}), 400
+    with lock(slug):
+        transcript = load_discussion(d) if request.args.get("transcript") == "1" else None
+        data = notes_mod.load(d)
+    title = notes_mod.note_label(meta) + "-" + (meta.get("title") or slug)
+    if fmt == "tex":
+        content = learning_export.render_tex(title, learning_export.notes_markdown(data, meta, transcript))
+    else:
+        content = notes_mod.render(d, data, meta, mode="standalone", discussion=transcript)
+    if request.args.get("save") == "1":
+        (d / (notes_mod.note_label(meta) + "-导出." + fmt)).write_text(content, encoding="utf-8")
+    return export_response(content, title, fmt)
+
+
+@app.post("/api/papers/<slug>/study-export")
+def organize_study(slug):
+    d = paper_dir(slug)
+    fmt = request.get_json(force=True).get("format", "html")
+    if fmt not in ("html", "tex"):
+        return jsonify({"error": "只支持 HTML 或 TeX"}), 400
+    s = settings()
+    if s.get("provider") == "mock":
+        return jsonify({"error": "演示模式不调用 AI。请配置模型后整理，或用「导出笔记」直接导出讨论与笔记。"}), 400
+    with lock(slug):
+        messages, data, meta = load_discussion(d), notes_mod.load(d), reading_meta(d)
+    if not any(m.get("content") for m in messages) and not any(data["sections"].values()):
+        return jsonify({"error": "还没有学习内容，请先讨论或填写笔记"}), 400
+    chunks = learning_export.report_inputs(messages, data, meta)
+
+    def generate(prompt, material, label, result):
+        yield sse({"type": "progress", "text": label})
+        for ev in llm.stream(dict(s, use_tools=False), prompt,
+                             [{"role": "user", "content": material, "images": []}], None):
+            if ev["type"] == "error":
+                raise ValueError(ev["error"])
+            if ev["type"] == "text":
+                result.append(ev["text"])
+                yield sse({"type": "text", "text": ev["text"]})
+        if not "".join(result).strip():
+            raise ValueError("模型未返回整理内容")
+
+    def gen():
+        try:
+            materials = chunks
+            round_no = 0
+            # Large discussions are summarized in bounded chunks without silently dropping old turns.
+            while len(materials) > 1:
+                round_no += 1
+                summaries = []
+                for i, material in enumerate(materials):
+                    result = []
+                    yield from generate(learning_export.REPORT_PROMPT + "\n这是长记录的一个片段，请保留后续合并所需的全部关键细节。",
+                                        material, f"第 {round_no} 轮：整理片段 {i + 1}/{len(materials)}", result)
+                    summaries.append("".join(result))
+                joined = "\n\n".join(summaries)
+                materials = [joined[i:i + 60000] for i in range(0, len(joined), 60000)]
+                if round_no >= 4 and len(materials) > 1:
+                    raise ValueError("讨论过长，分段整理未收敛，请按学习阶段分别整理；原记录已保留。")
+            result = []
+            yield from generate(learning_export.REPORT_PROMPT, materials[0], "正在生成完整学习总结…", result)
+            markdown = "".join(result).strip()
+            title = (meta.get("title") or slug) + " · 学习总结"
+            content = (learning_export.render_tex(title, markdown) if fmt == "tex" else
+                       learning_export.render_html(title, markdown, d, meta))
+            token = uuid.uuid4().hex
+            out = d / "learning-exports"
+            out.mkdir(exist_ok=True)
+            history_mod.write_json(out / (token + ".json"), {"title": title, "format": fmt, "markdown": markdown, "created": now()})
+            # For TeX requests, no HTML artifact is created.
+            (out / (token + "." + fmt)).write_text(content, encoding="utf-8")
+            yield sse({"type": "done", "url": f"/api/papers/{slug}/study-export/{token}", "format": fmt})
+        except GeneratorExit:
+            raise
+        except Exception as exc:
+            yield sse({"type": "error", "error": str(exc)})
+    return Response(gen(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/papers/<slug>/study-export/<token>")
+def download_study(slug, token):
+    if not re.fullmatch(r"[a-f0-9]{32}", token):
+        abort(404)
+    out = paper_dir(slug) / "learning-exports"
+    try:
+        report = json.loads((out / (token + ".json")).read_text(encoding="utf-8"))
+        fmt = report["format"]
+        if fmt not in ("html", "tex"):
+            abort(404)
+        content = (out / (token + "." + fmt)).read_text(encoding="utf-8")
+    except (OSError, ValueError, KeyError):
+        abort(404)
+    return export_response(content, report["title"], fmt)
 
 
 # ---------------- 页面 ----------------

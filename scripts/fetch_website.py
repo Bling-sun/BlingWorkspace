@@ -5,6 +5,7 @@ import json
 import re
 import urllib.parse
 import urllib.request
+import networking
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -22,7 +23,7 @@ def web_url(value, base=""):
 
 def download(url, limit=8_000_000):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=25) as response:
+    with networking.urlopen(req, timeout=25) as response:
         final = web_url(response.geturl())
         if not final:
             raise ValueError("不支持的重定向地址")

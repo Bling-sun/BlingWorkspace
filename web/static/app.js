@@ -24,6 +24,24 @@ const REPO_STATIONS = [
   { id: '7', label: '⑦ 工程', note: 's7', prompt: '讲第 ⑦ 站：依赖、测试、CI、代码质量和风险，以及想加一个功能该改哪几处。' },
   { id: 'free', label: '自由讨论', note: 'qa', prompt: '' },
 ];
+const KNOWLEDGE_STATIONS = [
+  { id: '0', label: '先修诊断', note: 'basic', prompt: '开始这个知识点的深入学习。先确认全称与语境，再用 3 道先修诊断题了解我，等待我作答后安排路线。' },
+  { id: '1', label: '① 问题与直觉', note: 's1', prompt: '讲① 问题与直觉：定义、具体痛点、类比与反例；最后用一道题检查理解。' },
+  { id: '2', label: '② 原理与推导', note: 's2', prompt: '讲② 原理与逐步推导：从假设开始，解释符号/维度/单位，代入数字；不要跳过关键步骤。' },
+  { id: '3', label: '③ 数值与信息流', note: 's3', prompt: '讲③ 用一个可手算的小例子逐步追踪输入、中间状态和输出，适用时包括形状、梯度、训练与推理差异或时间轴。' },
+  { id: '4', label: '④ 代码与实验', note: 's4', prompt: '讲④ 最小实现与验证实验：完整核心代码、依赖、种子、预期输出和断言，以及一个反例或消融实验。标明未实际运行。' },
+  { id: '5', label: '⑤ 对比与边界', note: 's5', prompt: '讲⑤ 相关方法对比、适用边界、常见误解和工程取舍，最后给我一道场景选型题。' },
+  { id: '6', label: '⑥ 前沿与证据', note: 's6', prompt: '讲⑥ 前沿增量与证据。基于已抓取或关联的一手材料，注明发布日期/版本、抓取日期和局限。没有近期材料时标尚未核验并给待查清单，不把记忆说成最新检索。' },
+  { id: '7', label: '⑦ 自测与纠错', note: 's7', prompt: '进入⑦ 验收。先只给一组概念、推导、代码、迁移和排障题，等我回答再判分。根据实际作答记录待验证/需补强/已验证，补讲后再出变式复测。' },
+  { id: 'free', label: '自由讨论', note: 'qa', prompt: '' },
+];
+const KNOWLEDGE_QUICK = [
+  ['补先修知识', '我对前置知识还不熟，请从最必要的先修讲起，再回到这个知识点。'],
+  ['手算一遍', '用一组最小数字逐步手算，解释每个中间量的含义、单位和形状。'],
+  ['给我出题', '请给一道不附答案的变式题，等我作答后指出错误，再安排复测。'],
+  ['检查我的理解', '我来复述我的理解：', 9],
+  ['常见误区', '给我一个容易混淆的反例，解释错误直觉在哪里失效。'],
+];
 let STATIONS = PAPER_STATIONS;
 let ST = Object.fromEntries(STATIONS.map(s => [s.id, s]));
 // [按钮, 发送的话, 需要用户补全时光标位置]
@@ -44,13 +62,14 @@ const REPO_QUICK = [
 let QUICK = PAPER_QUICK;
 let KIND = 'paper';
 function setKind(kind) {
-  KIND = kind === 'repo' ? 'repo' : 'paper';
-  STATIONS = KIND === 'repo' ? REPO_STATIONS : PAPER_STATIONS;
+  KIND = ['repo', 'knowledge'].includes(kind) ? kind : 'paper';
+  STATIONS = KIND === 'knowledge' ? KNOWLEDGE_STATIONS : KIND === 'repo' ? REPO_STATIONS : PAPER_STATIONS;
   ST = Object.fromEntries(STATIONS.map(s => [s.id, s]));
-  QUICK = KIND === 'repo' ? REPO_QUICK : PAPER_QUICK;
+  QUICK = KIND === 'knowledge' ? KNOWLEDGE_QUICK : KIND === 'repo' ? REPO_QUICK : PAPER_QUICK;
 }
 const isRepo = () => KIND === 'repo';
-const noteLabel = () => (isRepo() ? '代码分析笔记' : '精读笔记');
+const isKnowledge = () => KIND === 'knowledge';
+const noteLabel = () => (isKnowledge() ? '知识点学习笔记' : isRepo() ? '代码分析笔记' : '精读笔记');
 const PROVIDERS = {
   claude_cli: '本机 Claude Code（Claude 会员，免 API Key）',
   codex_cli: '本机 Codex（ChatGPT 会员，免 API Key）',
@@ -81,7 +100,7 @@ const PINFO = {
 };
 
 const S = {
-  settings: null, papers: [], root: '', query: '',
+  settings: null, papers: [], workGroups: [], root: '', query: '',
   slug: null, paper: null, station: '0', leftTab: 'pdf', mpane: 'center',
   attachments: [], ctrl: null, streamText: '', streamTools: [],
   notes: null, editing: {}, collapsed: {}, drafts: {}, saveTimer: null, saveState: '',
@@ -98,8 +117,8 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('bling:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('bling:' + k, JSON.stringify(v)); } catch { /* 无痕模式等 */ } },
 };
-S.libFilter = ['all', 'paper', 'repo'].includes(store.get('libFilter')) ? store.get('libFilter') : 'all';
-S.importType = store.get('importType', 'paper') === 'repo' ? 'repo' : 'paper';
+S.libFilter = ['all', 'paper', 'repo', 'knowledge'].includes(store.get('libFilter')) ? store.get('libFilter') : 'all';
+S.importType = ['repo', 'knowledge'].includes(store.get('importType')) ? store.get('importType') : 'paper';
 $('#themeSelect').value = ['sage', 'paper', 'dark'].includes(store.get('theme')) ? store.get('theme') : 'sage';
 document.documentElement.dataset.theme = $('#themeSelect').value;
 $('#themeSelect').onchange = e => { document.documentElement.dataset.theme = e.target.value; store.set('theme', e.target.value); };
@@ -175,9 +194,9 @@ function md(text, slug = S.slug, opts = {}) {
   return t.innerHTML;
 }
 function parseCodeRef(text) {
-  if (!S.slug || !(isRepo() || S.paper?.code_root)) return null;
+  if (!S.slug || !(isRepo() || S.paper?.code_root || S.paper?.work_group)) return null;
   const s = (text || '').trim().replace(/^\.\//, '');
-  let m = s.match(/^(code\/[^\s:`()]+?)(?::(\d+)(?:\s*[-–~]\s*(\d+))?)?$/);
+  let m = s.match(/^((?:code\/|materials\/[^/\s:]+\/)[^\s:`()]+?)(?::(\d+)(?:\s*[-–~]\s*(\d+))?)?$/);
   if (!m && isRepo()) {  // 模型偶尔省略 code/ 前缀：src/app.py:12
     m = s.match(/^([\w@-][\w.@/-]*\.[A-Za-z0-9]{1,8})(?::(\d+)(?:\s*[-–~]\s*(\d+))?)?$/);
     if (m && !/^(https?|www)\b/i.test(m[1]) && (m[1].includes('/') || m[2])) {
@@ -375,6 +394,20 @@ async function loadSettings() {
 $('#settingsBtn').onclick = openSettings;
 $('#modelChip').onclick = openSettings;
 
+function renderClaudeAuth(el, auth) {
+  const message = auth?.detail || '正在检测本机 Claude Code 登录状态…';
+  el.innerHTML = `<section class="cli-auth"><p class="small" style="color:${auth?.logged_in === true ? 'var(--ok)' : 'var(--muted)'}">${esc(message)}</p>
+    ${auth?.path ? `<p class="small muted">实际程序：<code>${esc(auth.path)}</code></p>` : ''}
+    ${auth?.available && auth.logged_in !== true ? `<p class="small">在 ${esc(auth.shell || '终端')} 执行以下完整路径命令，完成官方登录：</p><pre class="login-command">${esc(auth.login_command)}</pre><button class="btn sm" data-copy-claude-login>复制登录命令</button>` : ''}
+    <button class="btn sm" data-refresh-claude-auth>刷新登录状态</button></section>`;
+  const copy = $('[data-copy-claude-login]', el);
+  if (copy) copy.onclick = () => copyContent(auth.login_command);
+  $('[data-refresh-claude-auth]', el).onclick = async e => {
+    e.target.disabled = true;
+    try { const fresh = await api('/api/settings/claude-auth'); if (el.isConnected) renderClaudeAuth(el, fresh); }
+    catch (err) { toast('检查登录状态失败：' + err.message); if (e.target.isConnected) e.target.disabled = false; }
+  };
+}
 async function openSettings() {
   const s = await api('/api/settings');
   const prof = await api('/api/profile');
@@ -393,7 +426,7 @@ async function openSettings() {
       <label class="check" id="fVision"><input type="checkbox" id="sVision">模型能看图（多模态）</label>
       <label class="check" id="fTools"><input type="checkbox" id="sTools" ${s.use_tools ? 'checked' : ''}>让模型自己读代码 / 原文（工具调用）</label>
     </div>
-    <div class="row" style="margin:10px 0 4px"><button class="btn sm" id="sTest">保存并测试连接</button><span class="small" id="testOut"></span></div>
+    <div class="row" style="margin:10px 0 4px"><button class="btn sm" id="sTest">保存并测试连接</button><span class="small" id="testOut"></span><button class="btn sm" id="sCopyTest" hidden>复制测试结果</button></div>
     <p class="hint" style="margin-top:8px">每个接口的 Key / 模型分开保存，切换接口不会丢。Key 只存在本机 <code>web/config.json</code>（已加入 .gitignore，不会上传）。</p>
     <details><summary class="muted small">高级</summary><div class="grid2" style="margin-top:10px">
       <label class="field"><span>单次回复最多 token</span><input id="sMax" type="number" value="${esc(s.max_tokens)}"></label>
@@ -428,7 +461,14 @@ async function openSettings() {
         det.innerHTML = path ? `<p class="small" style="color:var(--ok);margin:0 0 10px">✓ 找到了 ${esc(info.cli)}：<code>${esc(path)}</code>（登录状态点「保存并测试连接」确认）</p>`
           : `<p class="small" style="color:var(--warn);margin:0 0 10px">还没找到 ${esc(info.cli)} 命令：按上面的说明安装并登录，或者在下面填它的路径。</p>`;
       } else det.innerHTML = '';
-      $('#testOut').textContent = '';
+      if (k === 'claude_cli') {
+        const authBox = document.createElement('div'); det.append(authBox);
+        renderClaudeAuth(authBox, s.claude_auth);
+        if (!s.claude_auth) api('/api/settings/claude-auth').then(auth => {
+          s.claude_auth = auth; if (authBox.isConnected) renderClaudeAuth(authBox, auth);
+        }).catch(err => { if (authBox.isConnected) authBox.textContent = '检测失败：' + err.message; });
+      }
+      $('#testOut').textContent = ''; $('#sCopyTest').hidden = true;
     };
     $('#sProvider').onchange = fill; fill();
     const tpl = $('#sTpl', body); if (tpl) tpl.onclick = () => { $('#sProfile').value = prof.example; tpl.remove(); };
@@ -443,6 +483,7 @@ async function openSettings() {
       if ($('#sProfile').value !== prof.text) { await api('/api/profile', { method: 'POST', json: { text: $('#sProfile').value } }); prof.text = $('#sProfile').value; }
       await loadSettings();
     };
+    $('#sCopyTest', body).onclick = () => copyContent($('#testOut', body).textContent);
     $('#sTest', body).onclick = async () => {
       const out = $('#testOut'); out.style.color = ''; out.innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:middle"></span> 测试中（命令行第一次可能要十几秒）…';
       try {
@@ -451,6 +492,7 @@ async function openSettings() {
         out.style.color = r.ok ? 'var(--ok)' : 'var(--err)';
         out.textContent = r.ok ? `✓ 连接成功：${r.text.replace(/\s+/g, ' ').slice(0, 40)}` : `✗ ${r.error || '没有返回内容'}`;
       } catch (e) { out.style.color = 'var(--err)'; out.textContent = '✗ ' + e.message; }
+      finally { if ($('#sCopyTest', body)) $('#sCopyTest', body).hidden = false; }
     };
     $('#sSave', body).onclick = async () => {
       try { await save(); closeModal(); toast('设置已保存'); route(); } catch (e) { toast('保存失败：' + e.message); }
@@ -460,7 +502,10 @@ async function openSettings() {
 
 /* ---------------- 路由 ---------------- */
 async function route() {
-  if (S.slug && (S.saveTimer || ['未保存', '保存失败'].includes(S.saveState))) await flushSave();
+  if (S.slug && !(await flushSave())) {
+    history.replaceState(null, '', '#/p/' + encodeURIComponent(S.slug));
+    toast('笔记保存失败，已保留当前材料，请重试保存后再切换'); return;
+  }
   const m = location.hash.match(/^#\/p\/(.+)$/);
   if (S.ctrl) { S.ctrl.abort(); S.ctrl = null; }
   if (m) openPaper(decodeURIComponent(m[1])); else showLibrary();
@@ -468,7 +513,7 @@ async function route() {
 window.addEventListener('hashchange', route);
 
 /* ================= 资料库：论文 / 网站 / 代码仓库 ================= */
-const LIB_FILTERS = [['all', '全部'], ['paper', '论文 · 网站'], ['repo', '代码库']];
+const LIB_FILTERS = [['all', '全部'], ['paper', '论文 · 网站'], ['repo', '代码库'], ['knowledge', '知识点']];
 async function showLibrary() {
   S.slug = null; S.paper = null; setKind('paper');
   $('#crumbs').innerHTML = '资料库';
@@ -476,16 +521,17 @@ async function showLibrary() {
   const app = $('#app');
   app.innerHTML = `<div class="library"><div class="lib-inner">
     <div class="lib-hero">
-      <div><span class="hero-eyebrow">YOUR LOCAL RESEARCH DESK</span><h1>Bling-Workspace</h1><p class="muted">从论文里的想法，读到代码里的实现。</p></div>
+      <div><span class="hero-eyebrow">YOUR LOCAL RESEARCH DESK</span><h1>Bling-Workspace</h1><p class="muted">读懂论文与代码，把具体知识学透。</p></div>
       <div class="hero-modes" aria-hidden="true"><span class="mode-pill paper">读论文 · 六站</span><span class="mode-pill repo">读代码 · 七站</span></div>
     </div>
     <div class="workspace-entries" aria-label="选择阅读方式">
       <button class="workspace-entry paper ${S.importType === 'paper' ? 'on' : ''}" data-entry="paper"><span class="entry-icon" aria-hidden="true">↗</span><span><strong>论文阅读器</strong><span>论文、PDF 与项目网站 · 六站精读</span></span><span class="entry-arrow" aria-hidden="true">→</span></button>
       <button class="workspace-entry repo ${S.importType === 'repo' ? 'on' : ''}" data-entry="repo"><span class="entry-icon" aria-hidden="true">&lt;/&gt;</span><span><strong>代码分析器</strong><span>GitHub 链接与本地项目 · 七站带读</span></span><span class="entry-arrow" aria-hidden="true">→</span></button>
+      <button class="workspace-entry knowledge ${S.importType === 'knowledge' ? 'on' : ''}" data-entry="knowledge"><span class="entry-icon" aria-hidden="true">◇</span><span><strong>知识点深入解析</strong><span>基础与前沿 · 推导、实践与自测纠错</span></span><span class="entry-arrow" aria-hidden="true">→</span></button>
     </div>
     <section class="importer" id="importer"></section>
     <div class="lib-tools"><div class="seg" id="libFilter">${LIB_FILTERS.map(([k, v]) => `<button data-f="${k}" class="${S.libFilter === k ? 'on' : ''}">${v}</button>`).join('')}</div>
-      <input id="q" placeholder="搜索标题、作者、仓库、语言" value="${esc(S.query)}"><span class="muted small grow" id="count"></span><button class="btn sm" id="trashBtn">回收站</button></div>
+      <input id="q" placeholder="搜索标题、作者、仓库、语言" value="${esc(S.query)}"><span class="muted small grow" id="count"></span><button class="btn sm" id="mergeWorkBtn">合并同一工作</button><button class="btn sm" id="trashBtn">回收站</button></div>
     <div id="cards"></div>
     <p class="muted small lib-roots" id="rootLine"></p></div></div>`;
   renderImporter();
@@ -494,6 +540,7 @@ async function showLibrary() {
     $('#importer').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     $('#impTarget')?.focus({ preventScroll: true });
   });
+  $('#mergeWorkBtn').onclick = () => manageWork();
   $('#trashBtn').onclick = openTrash;
   $('#q').oninput = e => { S.query = e.target.value; renderCards(); };
   $$('#libFilter button').forEach(b => b.onclick = () => {
@@ -501,20 +548,29 @@ async function showLibrary() {
     $$('#libFilter button').forEach(x => x.classList.toggle('on', x === b)); renderCards();
   });
   try {
-    const r = await api('/api/papers'); S.papers = r.papers; S.root = r.root;
+    const r = await loadLibraryRecords(); S.papers = r.papers; S.root = r.root;
     $('#rootLine').innerHTML = `论文 / 网站目录：<code>${esc(r.root)}</code> · 代码分析目录：<code>${esc(r.repos_root)}</code>（设置里可改）`;
   } catch (e) { toast('读取资料库失败：' + e.message); }
   renderCards();
 }
 
+async function loadLibraryRecords() {
+  const result = await api('/api/papers');
+  S.papers = result.papers; S.workGroups = result.work_groups || [];
+  return result;
+}
+const materialLabel = kind => ({ paper: '论文', website: '项目网站', repo: '代码', knowledge: '知识点' }[kind] || '材料');
 const GH_URL = /^(?:https?:\/\/)?(?:www\.)?(github\.com|gitee\.com|gitlab\.com)\/[\w.-]+\/[\w.-]+/i;
 function renderImporter() {
   const el = $('#importer'); if (!el) return;
   const type = S.importType; const mode = S.importMode; const rmode = S.repoMode;
   $$('[data-entry]').forEach(b => { b.classList.toggle('on', b.dataset.entry === type); b.setAttribute('aria-pressed', String(b.dataset.entry === type)); });
-  const typeSeg = `<div class="imp-type" role="tablist">${[['paper', '论文 / 网站', '读'], ['repo', '代码仓库', '{ }']].map(([k, v, ic]) =>
+  const typeSeg = `<div class="imp-type" role="tablist">${[['paper', '论文 / 网站', '读'], ['repo', '代码仓库', '{ }'], ['knowledge', '知识点学习', '◇']].map(([k, v, ic]) =>
     `<button role="tab" aria-selected="${k === type}" data-type="${k}" class="${k === type ? 'on' : ''}"><span class="ic">${ic}</span>${v}</button>`).join('')}</div>`;
   let body;
+  if (type === 'knowledge') {
+    renderKnowledgeImporter(el, typeSeg); return;
+  }
   if (type === 'repo') {
     const main = rmode === 'local'
       ? `<input type="text" id="impTarget" placeholder="本机代码文件夹的完整路径，如 D:\\CODE\\my-project">`
@@ -564,6 +620,7 @@ function renderImporter() {
 }
 
 async function doImport() {
+  if (S.importType === 'knowledge') return createKnowledge();
   const fd = new FormData();
   let kind = S.importType;
   if (kind === 'paper' && S.importMode === 'link') {
@@ -595,7 +652,7 @@ async function doImport() {
     job.kind = kind;
     watchJob(job, () => $('#jobBox'), async j => {
       if (j.status === 'done') {
-        const r = await api('/api/papers'); S.papers = r.papers; renderCards();
+        const r = await loadLibraryRecords(); S.papers = r.papers; renderCards();
         toast('导入完成');
       }
     });
@@ -607,8 +664,9 @@ function renderJob(box, j) {
   if (!box) return;
   const status = { running: '<span class="spinner"></span>正在处理…', done: '✓ 完成', failed: '✗ 失败（看上面的日志）' }[j.status];
   box.innerHTML = `<div class="joblog" id="jobLog">${esc(j.log.join('\n')) || '启动中…'}</div>
-    <div class="jobbar"><span class="row">${status}</span><span class="grow"></span>
+    <div class="jobbar"><span class="row">${status}</span><span class="grow"></span><button class="btn sm" data-copy-job-log>复制完整日志</button>
     ${j.status === 'done' && j.slug ? `<a class="btn primary" href="#/p/${encodeURIComponent(j.slug)}">${j.kind === 'repo' ? '开始分析' : '开始精读'} →</a>` : ''}</div>`;
+  $('[data-copy-job-log]', box).onclick = () => copyContent(j.log.join('\n'));
   const lg = $('#jobLog', box); lg.scrollTop = lg.scrollHeight;
 }
 
@@ -626,8 +684,8 @@ function watchJob(job, boxFn, onEnd) {
 }
 
 function stationDots(p) {
-  const st = p.kind === 'repo' ? REPO_STATIONS : PAPER_STATIONS;
-  const talked = new Set(p.talked || []); if (talked.has('0')) talked.add('1');
+  const st = p.kind === 'knowledge' ? KNOWLEDGE_STATIONS : p.kind === 'repo' ? REPO_STATIONS : PAPER_STATIONS;
+  const talked = new Set(p.talked || []); if (p.kind !== 'knowledge' && talked.has('0')) talked.add('1');
   const noted = new Set(p.noted || []);
   return st.slice(1, 8).map(s => `<span class="st-dot ${noted.has(s.note) ? 'noted' : talked.has(s.id) ? 'talked' : ''}" title="${s.label}">${s.label[0]}</span>`).join('');
 }
@@ -637,10 +695,71 @@ function repoSource(p) {
   const u = (p.source_url || '').replace(/^https?:\/\/(www\.)?/, '');
   return esc(u) + (p.branch ? ` · ${esc(p.branch)}` : '');
 }
-async function deleteRecord(slug, title) {
+async function manageWork(groupId = null, seedSlug = null) {
+  if (S.ctrl || S.saveState === '保存中…') return toast('请先等待当前生成或保存完成');
+  if (S.slug) { await flushSave(); if (S.saveState === '保存失败') return; }
+  try {
+    await loadLibraryRecords();
+    const response = await api('/api/work-groups');
+    const group = response.groups.find(g => g.id === groupId);
+    if (groupId && !group) return toast('这个工作已被解除，请刷新后重试');
+    const suggestion = response.suggestions.find(s => !seedSlug || s.slugs.includes(seedSlug));
+    const chosen = new Set(group ? group.members.map(m => m.slug) : suggestion?.slugs || (seedSlug ? [seedSlug] : []));
+    const first = S.papers.find(p => chosen.has(p.slug) && p.kind === 'paper') || S.papers.find(p => chosen.has(p.slug));
+    const title = group?.title || (first?.title || '').split(/[:：]/)[0];
+    openModal(group ? '管理同一工作' : '合并同一工作', `
+      <p class="muted small">合并为一个工作入口，原讨论、笔记与历史分别保留；AI 可联合查阅所选材料。材料文件保留原位，支持解除合并。</p>
+      <label class="field"><span>工作名称</span><input id="workTitle" maxlength="160" value="${esc(title)}" placeholder="例如 SuperMimic"></label>
+      ${!group && response.suggestions.length ? `<div class="work-suggestions"><span class="small muted">根据资料中的链接发现：</span>${response.suggestions.map((s, i) => `<button class="btn sm" data-work-suggestion="${i}">${esc((S.papers.find(p => p.slug === s.slugs[0])?.title || '').split(/[:：]/)[0])} · ${esc(s.reason)}</button>`).join('')}</div>` : ''}
+      <div class="work-choices">${S.papers.map(p => `<label class="work-choice ${p.work_id && p.work_id !== groupId ? 'unavailable' : ''}"><input type="checkbox" data-work-slug="${esc(p.slug)}" ${chosen.has(p.slug) ? 'checked' : ''} ${p.work_id && p.work_id !== groupId ? 'disabled' : ''}><span><strong>${esc(p.title)}</strong><span class="muted small">${materialLabel(p.kind)}${p.work_id && p.work_id !== groupId ? ' · 已属于另一个工作' : ''}</span></span></label>`).join('')}</div>
+      ${group?.missing_count ? `<p class="muted small">另有 ${group.missing_count} 份材料在回收站或暂不可用，本次编辑会保留其关联。</p>` : ''}
+      <label class="field"><span>默认打开</span><select id="workPrimary"></select></label>
+      <div class="row wrap">${group ? '<button class="btn danger" id="dissolveWork">解除合并</button>' : ''}<span class="muted small" id="workSelectionCount"></span><span class="grow"></span><button class="btn" data-close>取消</button><button class="btn primary" id="saveWork">${group ? '保存' : '合并为一个工作'}</button></div>`, body => {
+        const selected = () => $$('[data-work-slug]:checked', body).map(i => i.dataset.workSlug);
+        const update = () => {
+          const slugs = selected();
+          const previous = $('#workPrimary', body).value || group?.primary_slug;
+          $('#workPrimary', body).innerHTML = slugs.map(slug => { const p = S.papers.find(p => p.slug === slug); return `<option value="${esc(slug)}">${materialLabel(p.kind)} · ${esc(p.title)}</option>`; }).join('');
+          const preferred = slugs.includes(previous) ? previous : slugs.find(slug => S.papers.find(p => p.slug === slug).kind === 'paper') || slugs[0];
+          if (preferred) $('#workPrimary', body).value = preferred;
+          $('#workSelectionCount', body).textContent = `已选 ${slugs.length} 份材料`;
+          $('#saveWork', body).disabled = !slugs.length || slugs.length + (group?.missing_count || 0) < 2;
+        };
+        $$('[data-work-slug]', body).forEach(i => i.onchange = update);
+        $$('[data-work-suggestion]', body).forEach(b => b.onclick = () => {
+          const pair = response.suggestions[+b.dataset.workSuggestion];
+          $$('[data-work-slug]', body).forEach(i => i.checked = pair.slugs.includes(i.dataset.workSlug));
+          const p = S.papers.find(p => pair.slugs.includes(p.slug) && p.kind === 'paper') || S.papers.find(p => p.slug === pair.slugs[0]);
+          $('#workTitle', body).value = (p.title || '').split(/[:：]/)[0]; update();
+        });
+        update();
+        $('#saveWork', body).onclick = async e => {
+          e.target.disabled = true;
+          try {
+            await api(group ? `/api/work-groups/${encodeURIComponent(group.id)}` : '/api/work-groups', { method: group ? 'PUT' : 'POST', json: {
+              title: $('#workTitle', body).value.trim(), slugs: selected(), primary_slug: $('#workPrimary', body).value,
+            } });
+            closeModal(); await loadLibraryRecords();
+            if (S.slug) await openPaper(S.slug); else renderCards();
+            toast(group ? '工作关联已更新' : '已合并为一个工作，原记录分别保留');
+          } catch (err) { toast(err.message); if (e.target.isConnected) update(); }
+        };
+        const dissolve = $('#dissolveWork', body);
+        if (dissolve) dissolve.onclick = async () => {
+          if (!confirm('解除合并？各份材料会重新独立显示，讨论、笔记和历史保留。')) return;
+          dissolve.disabled = true;
+          try {
+            await api(`/api/work-groups/${encodeURIComponent(group.id)}`, { method: 'DELETE' });
+            closeModal(); await loadLibraryRecords(); if (S.slug) await openPaper(S.slug); else renderCards(); toast('已解除合并，原记录保留');
+          } catch (err) { toast(err.message); dissolve.disabled = false; }
+        };
+      });
+  } catch (err) { toast('读取工作材料失败：' + err.message); }
+}
+async function deleteRecord(slug, title, workId = null) {
   if (S.ctrl) return toast('请先停止当前生成，再删除记录');
   if (S.saveState === '保存中…') return toast('请等待笔记保存完成后再删除记录');
-  openModal('删除整份阅读记录', `<p>将 <strong>${esc(title)}</strong> 从资料库移入回收站。</p><p>这份资料的全部讨论、笔记和历史一起移除，可在回收站恢复。本地源码、PDF 和记录文件保留。</p><div class="row"><span class="grow"></span><button class="btn" data-close>取消</button><button class="btn danger" id="deleteRecordConfirm">移入回收站</button></div>`, body => {
+  openModal('删除整份阅读记录', `<p>将 <strong>${esc(title)}</strong> 从资料库移入回收站。</p><p>${workId ? '这个工作下所有材料的' : '这份资料的'}全部讨论、笔记和历史一起移除，可在回收站恢复。本地源码、PDF 和记录文件保留。</p><div class="row"><span class="grow"></span><button class="btn" data-close>取消</button><button class="btn danger" id="deleteRecordConfirm">移入回收站</button></div>`, body => {
     $('#deleteRecordConfirm', body).onclick = async e => {
       e.target.disabled = true;
       try {
@@ -648,10 +767,10 @@ async function deleteRecord(slug, title) {
           await flushSave();
           if (S.saveState === '保存失败') throw new Error('笔记尚未保存，请先保存后再删除');
         }
-        await api(`/api/papers/${encodeURIComponent(slug)}`, { method: 'DELETE' });
-        S.papers = S.papers.filter(p => p.slug !== slug);
+        await api(workId ? `/api/work-groups/${encodeURIComponent(workId)}/trash` : `/api/papers/${encodeURIComponent(slug)}`, { method: workId ? 'POST' : 'DELETE' });
+        await loadLibraryRecords();
         closeModal();
-        if (S.slug === slug) { S.slug = null; S.paper = null; S.notes = null; location.hash = '#/'; }
+        if (S.slug === slug || (workId && S.paper?.work_group?.id === workId)) { S.slug = null; S.paper = null; S.notes = null; location.hash = '#/'; }
         else renderCards();
         toast('整份记录已移入回收站，可恢复');
       } catch (err) { toast('删除失败：' + err.message); if (e.target.isConnected) e.target.disabled = false; }
@@ -661,19 +780,26 @@ async function deleteRecord(slug, title) {
 async function openTrash() {
   try {
     const { items } = await api('/api/trash');
-    openModal('回收站', `<p class="muted small">删除的整份阅读记录保留在本机，恢复后可以继续讨论、查看笔记与历史。</p>${items.length ? items.map(item => `<div class="trash-row"><div class="grow"><strong>${esc(item.title)}</strong><div class="muted small">${esc(fmtTime(item.deleted_at))} · ${item.kind === 'repo' ? '代码分析' : '论文 / 网站'}</div></div><button class="btn sm" data-restore="${esc(item.id)}">恢复</button></div>`).join('') : '<p class="muted">回收站为空。</p>'}`, body => {
+    openModal('回收站', `<p class="muted small">删除的整份阅读记录保留在本机，恢复后可以继续讨论、查看笔记与历史。</p>${items.length ? items.map(item => `<div class="trash-row"><div class="grow"><strong>${esc(item.title)}</strong><div class="muted small">${esc(fmtTime(item.deleted_at))} · ${item.kind === 'work' ? '整个工作' : item.kind === 'repo' ? '代码分析' : '论文 / 网站'}</div></div><button class="btn sm" data-restore="${esc(item.id)}">恢复</button></div>`).join('') : '<p class="muted">回收站为空。</p>'}`, body => {
       $$('[data-restore]', body).forEach(b => b.onclick = async () => {
         b.disabled = true;
         try {
           await api(`/api/trash/${encodeURIComponent(b.dataset.restore)}/restore`, { method: 'POST' });
-          S.papers = (await api('/api/papers')).papers; renderCards(); await openTrash(); toast('已恢复整份阅读记录');
+          S.papers = (await loadLibraryRecords()).papers; renderCards(); await openTrash(); toast('已恢复整份阅读记录');
         } catch (err) { toast('恢复失败：' + err.message); if (b.isConnected) b.disabled = false; }
       });
     });
   } catch (err) { toast('读取回收站失败：' + err.message); }
 }
 function cardHtml(p) {
-  const foot = `<div class="row"><div class="stations">${stationDots(p.progress)}</div><span class="grow"></span><span class="muted small">${p.progress.messages ? `${p.progress.messages} 条讨论 · ` : ''}${fmtTime(p.mtime)}</span><button class="icon-btn danger" data-delete-record aria-label="删除 ${esc(p.title)} 的整份记录">删除</button></div>`;
+  const foot = `<div class="row"><div class="stations">${stationDots({ ...p.progress, kind: p.kind })}</div><span class="grow"></span><span class="muted small">${p.progress.messages ? `${p.progress.messages} 条讨论 · ` : ''}${fmtTime(p.mtime)}</span><button class="icon-btn danger" data-delete-record aria-label="删除 ${esc(p.title)} 的整份记录">删除</button></div>`;
+  if (p.kind === 'knowledge') {
+    return `<article class="card knowledge" data-slug="${esc(p.slug)}" tabindex="0"><div class="card-top"><span class="kind-badge knowledge">知识点学习</span><span class="muted small">基础 + 前沿</span></div><h3>${esc(p.title)}</h3><p class="abs">${esc(p.summary || '')}</p><p class="muted small">先修诊断 → 原理推导 → 代码实验 → 对比前沿 → 自测纠错</p>${foot}</article>`;
+  }
+  if (p.kind === 'work') {
+    const kinds = ['paper', 'website', 'repo', 'knowledge'].map(kind => { const n = p.members.filter(m => m.kind === kind).length; return n ? `<span class="chip">${materialLabel(kind)} ${n}</span>` : ''; }).join('');
+    return `<article class="card work" data-slug="${esc(p.slug)}" tabindex="0"><div class="card-top"><span class="kind-badge work">同一工作</span><span class="muted small">${p.members.length} 份材料</span><span class="grow"></span><button class="btn sm" data-manage-work>管理合并</button></div><h3>${esc(p.title)}</h3><p class="abs">${esc(p.summary || '')}</p><div class="row wrap">${kinds}</div><p class="small muted">切换材料 · 原讨论和笔记分别保留 · AI 联合查阅</p>${foot}</article>`;
+  }
   if (p.kind === 'repo') {
     return `<article class="card repo" data-slug="${esc(p.slug)}" tabindex="0">
       <div class="card-top"><span class="kind-badge repo">代码库</span><span class="muted small src">${repoSource(p)}</span></div>
@@ -695,11 +821,11 @@ function renderCards() {
   const box = $('#cards'); if (!box) return;
   const q = S.query.trim().toLowerCase();
   const f = S.libFilter;
-  const list = S.papers.filter(p => (f === 'all' || (f === 'repo') === (p.kind === 'repo'))
-    && (!q || [p.title, p.arxiv_id, p.source_url, p.local_path, p.summary, ...(p.authors || []), ...(p.languages || []).map(l => l.name), ...(p.topics || [])]
-      .join(' ').toLowerCase().includes(q)));
+  const entries = BlingWorks.entries(S.papers, S.workGroups);
+  const list = entries.filter(p => BlingWorks.matches(p, q, f));
   const nr = S.papers.filter(p => p.kind === 'repo').length;
-  $('#count').textContent = `${list.length} 项 · 论文 / 网站 ${S.papers.length - nr} · 代码库 ${nr}`;
+  const nk = S.papers.filter(p => p.kind === 'knowledge').length;
+  $('#count').textContent = `${list.length} 个入口 · ${S.papers.length} 份材料 · 论文 / 网站 ${S.papers.length - nr - nk} · 代码库 ${nr} · 知识点 ${nk}`;
   if (!list.length) {
     box.className = '';
     box.innerHTML = S.papers.length && (q || f !== 'all')
@@ -714,7 +840,9 @@ function renderCards() {
   $$('.card', box).forEach(c => {
     c.onclick = () => { location.hash = '#/p/' + encodeURIComponent(c.dataset.slug); };
     const del = $('[data-delete-record]', c);
-    del.onclick = e => { e.stopPropagation(); const p = S.papers.find(p => p.slug === c.dataset.slug); deleteRecord(p.slug, p.title); };
+    del.onclick = e => { e.stopPropagation(); const p = list.find(p => p.slug === c.dataset.slug); deleteRecord(p.slug, p.title, p.kind === 'work' ? p.work_id : null); };
+    const manage = $('[data-manage-work]', c);
+    if (manage) manage.onclick = e => { e.stopPropagation(); manageWork(list.find(p => p.slug === c.dataset.slug).work_id); };
     c.onkeydown = e => { if (e.target === c && e.key === 'Enter') c.onclick(); };
   });
 }
@@ -733,7 +861,7 @@ async function openPaper(slug) {
   const P = S.paper; setKind(P.kind);
   if (fresh) {
     Object.assign(S, { slug, attachments: [], editing: {}, drafts: {}, saveState: '', questionSearch: '', file: null, sel: null, symbols: null, symQuery: '',
-      filePath: codeHome(), leftTab: store.get(isRepo() ? 'leftTab:repo' : 'leftTab', isRepo() ? 'overview' : 'pdf') });
+      filePath: codeHome(), leftTab: store.get(isKnowledge() ? 'leftTab:knowledge' : isRepo() ? 'leftTab:repo' : 'leftTab', isKnowledge() ? 'plan' : isRepo() ? 'overview' : 'pdf') });
   }
   S.notes = P.notes;
   if (!isRepo() && !P.meta.code_dir && !P.code_root && S.filePath.startsWith('code')) S.filePath = '';
@@ -741,10 +869,13 @@ async function openPaper(slug) {
   S.station = store.get('station:' + slug, null) || STATIONS.find(s => s.id !== 'free' && !talked.has(s.id))?.id || 'free';
   if (!ST[S.station]) S.station = '0';
   const m = P.meta;
-  document.title = (m.title || slug) + (isRepo() ? ' · 代码分析' : ' · 精读');
-  $('#crumbs').innerHTML = `<a href="#/">资料库</a> / ${isRepo() ? '代码库' : m.kind === 'website' ? '网站' : '论文'} / ${esc(m.title || slug)}`;
+  document.title = (m.title || slug) + (isKnowledge() ? ' · 知识点学习' : isRepo() ? ' · 代码分析' : ' · 精读');
+  $('#crumbs').innerHTML = `<a href="#/">资料库</a> / ${isKnowledge() ? '知识点' : isRepo() ? '代码库' : m.kind === 'website' ? '网站' : '论文'} / ${esc(m.title || slug)}`;
   let sub, extra = '';
-  if (isRepo()) {
+  if (isKnowledge()) {
+    sub = [m.domain, m.level, m.learning_mode].filter(Boolean).map(esc).join(' · ');
+    extra = '<button class="btn sm" data-act="knowledge-sources">管理前沿来源</button>';
+  } else if (isRepo()) {
     const src = m.source_url || m.remote_url;
     sub = [src ? `<a href="${esc(src)}" target="_blank" rel="noopener">${esc(src.replace(/^https?:\/\/(www\.)?/, ''))}</a>` : esc(m.local_path || ''),
       m.subdir ? `子目录 ${esc(m.subdir)}` : '', m.branch ? esc(m.branch) : '', m.commit ? `<code>${esc(m.commit.slice(0, 7))}</code>` : '',
@@ -759,15 +890,19 @@ async function openPaper(slug) {
   app.innerHTML = `<div class="ws ${isRepo() ? 'is-repo' : 'is-paper'}">
     <div class="ws-head">
       <a class="btn ghost sm" href="#/" title="回资料库">←</a>
-      <span class="kind-badge ${isRepo() ? 'repo' : m.kind === 'website' ? 'site' : 'paper'} hide-m">${isRepo() ? '代码库' : m.kind === 'website' ? '网站' : '论文'}</span>
+      <span class="kind-badge ${isKnowledge() ? 'knowledge' : isRepo() ? 'repo' : m.kind === 'website' ? 'site' : 'paper'} hide-m">${isKnowledge() ? '知识点' : isRepo() ? '代码库' : m.kind === 'website' ? '网站' : '论文'}</span>
       <div class="grow"><h2>${esc(m.title || slug)}</h2><div class="sub">${sub}</div></div>
       <span class="small muted hide-m">讨论自动保存到本机</span>
       ${extra}
+      <button class="btn sm" data-act="manage-work">${P.work_group ? '管理合并' : '合并同一工作'}</button>
       <button class="btn sm danger" data-act="delete-record">删除记录</button>
       <button class="btn sm" data-act="history">历史 / 对比</button>
       <button class="btn sm hide-m" data-act="preview">预览笔记</button>
-      <button class="btn sm primary" data-act="export">导出 HTML</button>
+      <button class="btn sm" data-act="export">导出笔记…</button>
+      <select id="studyFormat" aria-label="学习总结格式"><option value="html">HTML</option><option value="tex">TeX（.tex）</option></select>
+      <button class="btn sm primary" data-act="study-export">一键整理学习</button>
     </div>
+    ${P.work_group ? `<nav class="work-materials" aria-label="同一工作的材料"><div class="work-materials-title"><strong>${esc(P.work_group.title)}</strong><span class="small muted">讨论、笔记分别保存 · AI 可联合查阅</span></div><div class="work-materials-links">${P.work_group.members.map(member => `<a href="#/p/${encodeURIComponent(member.slug)}" class="material-link ${member.slug === slug ? 'on' : ''}" ${member.slug === slug ? 'aria-current="page"' : ''} title="${esc(member.title)}"><span class="kind-badge ${member.kind === 'repo' ? 'repo' : member.kind === 'website' ? 'site' : 'paper'}">${materialLabel(member.kind)}</span><span>${esc(member.title)}</span></a>`).join('')}</div></nav>` : ''}
     <div class="panes" id="panes" style="--c1:${store.get('c1', '38%')};--c3:${store.get('c3', '30%')}">
       <section class="pane left" id="paneLeft"></section>
       <div class="split" data-split="c1"></div>
@@ -777,6 +912,8 @@ async function openPaper(slug) {
     </div>
     <nav class="mtabs">${[['left', isRepo() ? '代码' : '材料'], ['center', '讨论'], ['right', '问题 / 笔记']].map(([k, v]) => `<button data-m="${k}">${v}</button>`).join('')}</nav>
   </div>`;
+  $('#studyFormat').value = store.get('studyFormat', 'html') === 'tex' ? 'tex' : 'html';
+  $('#studyFormat').onchange = e => store.set('studyFormat', e.target.value);
   $$('.ws-head [data-act]').forEach(b => b.onclick = () => headAction(b.dataset.act));
   $$('.mtabs button').forEach(b => b.onclick = () => showMobile(b.dataset.m));
   showMobile(S.mpane);
@@ -819,6 +956,9 @@ function jobModal(title, job, onDone) {
 }
 async function headAction(act) {
   const slug = encodeURIComponent(S.slug);
+  if (act === 'study-export') return organizeStudy();
+  if (act === 'knowledge-sources') return manageKnowledgeSources();
+  if (act === 'manage-work') return manageWork(S.paper.work_group?.id || null, S.slug);
   if (act === 'delete-record') return deleteRecord(S.slug, S.paper.meta.title || S.slug);
   if (act === 'history') { await flushSave(); return openHistory(); }
   if (act === 'preview') { await flushSave(); window.open(`/api/papers/${slug}/notes/view`, '_blank'); }
@@ -830,19 +970,23 @@ async function headAction(act) {
     } catch (e) { toast('重新分析失败：' + e.message); }
   }
   if (act === 'export') {
-    await flushSave();
+    if (S.ctrl || Object.values(S.drafts).some(d => d.streaming)) return toast('请等待当前回复或笔记草稿完成再导出');
+    if (!await flushSave()) return;
     const nf = S.paper.note_file || '精读笔记.html';
-    openModal(`导出${noteLabel()}（HTML）`, `
-      <p style="margin-top:0">导出成一个<strong>单文件 HTML</strong>：图片都内嵌在文件里，发给别人、换台电脑直接用浏览器打开；浏览器里「打印 → 另存为 PDF」也能得到排好版的 PDF。</p>
+    openModal(`导出${noteLabel()}`, `
+      <p style="margin-top:0">直接导出已保存的笔记，可附完整讨论。选择 HTML 可在浏览器中阅读、打印；选择 TeX 可得到 UTF-8 源文档，用 XeLaTeX 编译。</p>
       <p class="muted small">资料目录里一直有一份随时更新的 <code>${esc(nf)}</code>${isRepo() ? '' : '（图用相对路径，和 figures/ 放在一起时打开）'}。</p>
-      <label class="check" style="margin:12px 0 6px"><input type="checkbox" id="exT">附上完整讨论记录（折叠在文末）</label>
-      <label class="check"><input type="checkbox" id="exS" checked>同时在资料目录保存一份 <code>${esc(noteLabel())}-导出.html</code></label>
-      <div class="row" style="margin-top:16px"><span class="grow"></span><button class="btn" data-act="exView">先预览</button><button class="btn primary" data-act="exGo">下载 HTML</button></div>`, body => {
+      <label>格式 <select id="exFormat" aria-label="导出格式"><option value="html">单文件 HTML</option><option value="tex">TeX 文档（XeLaTeX）</option></select></label>
+      <p class="muted small">TeX 使用 UTF-8，保留标题、表格、公式文本与代码；图片保留说明及来源，不依赖外部图片目录。</p>
+      <label class="check" style="margin:12px 0 6px"><input type="checkbox" id="exT" checked>附上完整讨论记录（折叠在文末）</label>
+      <label class="check"><input type="checkbox" id="exS" checked>同时在资料目录保存一份 <code>${esc(noteLabel())}-导出.所选格式</code></label>
+      <div class="row" style="margin-top:16px"><span class="grow"></span><button class="btn" data-act="exView">先预览</button><button class="btn primary" data-act="exGo">下载文件</button></div>`, body => {
+      $('#exFormat', body).value = store.get('studyFormat', 'html') === 'tex' ? 'tex' : 'html';
+      $('#exFormat', body).onchange = e => store.set('studyFormat', e.target.value);
       $('[data-act=exView]', body).onclick = () => window.open(`/api/papers/${slug}/notes/view`, '_blank');
       $('[data-act=exGo]', body).onclick = () => {
-        const q = `transcript=${$('#exT').checked ? 1 : 0}&save=${$('#exS').checked ? 1 : 0}`;
-        const a = document.createElement('a'); a.href = `/api/papers/${slug}/export?${q}`; a.click();
-        closeModal(); toast('已导出');
+        const q = `format=${$('#exFormat').value}&transcript=${$('#exT').checked ? 1 : 0}&save=${$('#exS').checked ? 1 : 0}`;
+        downloadLearning(`/api/papers/${slug}/export?${q}`).then(() => { closeModal(); toast('已导出'); }).catch(e => toast(e.message));
       };
     });
   }
@@ -857,7 +1001,7 @@ async function analyzePaperCode(url) {
 /* ---------------- 左栏：材料 ---------------- */
 const LEFT_TABS = [['pdf', 'PDF / 网页正文'], ['figs', '图表'], ['outline', '大纲'], ['files', '代码 / 文件'], ['info', '信息']];
 const REPO_TABS = [['overview', '概览'], ['files', '代码'], ['symbols', '符号'], ['outline', '仓库地图'], ['info', '信息']];
-function leftTabs() { return isRepo() ? REPO_TABS : LEFT_TABS; }
+function leftTabs() { return isKnowledge() ? [['plan', '学习路线'], ['sources', '来源快照'], ['files', '文件'], ['info', '信息']] : isRepo() ? REPO_TABS : LEFT_TABS; }
 function renderLeft() {
   const el = $('#paneLeft'); if (!el) return; const P = S.paper;
   if (!leftTabs().some(([k]) => k === S.leftTab)) S.leftTab = leftTabs()[0][0];
@@ -865,12 +1009,12 @@ function renderLeft() {
   const count = k => (k === 'figs' ? ` <span class="muted small">${n}</span>` : k === 'symbols' && P.meta.n_symbols ? ` <span class="muted small">${fmtNum(P.meta.n_symbols)}</span>` : '');
   el.innerHTML = `<div class="pane-tabs">${leftTabs().map(([k, v]) => `<button data-tab="${k}" class="${S.leftTab === k ? 'on' : ''}">${v}${count(k)}</button>`).join('')}</div>
     <div class="pane-body" id="leftBody">
-      ${isRepo() ? '' : `<iframe class="pdf-frame" id="pdfFrame" ${P.has_pdf ? `src="/files/${encodeURIComponent(S.slug)}/paper.pdf#view=FitH"` : ''} ${S.leftTab === 'pdf' ? '' : 'hidden'} title="PDF"></iframe>`}
+      ${isRepo() || isKnowledge() ? '' : `<iframe class="pdf-frame" id="pdfFrame" ${P.has_pdf ? `src="/files/${encodeURIComponent(S.slug)}/paper.pdf#view=FitH"` : ''} ${S.leftTab === 'pdf' ? '' : 'hidden'} title="PDF"></iframe>`}
       <div id="leftOther" ${S.leftTab === 'pdf' ? 'hidden' : ''}></div>
     </div>`;
   $$('.pane-tabs button', el).forEach(b => b.onclick = () => {
     if (b.dataset.tab === 'files' && S.leftTab === 'files' && S.file) { S.file = null; }  // 再点一次「代码」回到目录
-    S.leftTab = b.dataset.tab; store.set(isRepo() ? 'leftTab:repo' : 'leftTab', S.leftTab); switchLeft();
+    S.leftTab = b.dataset.tab; store.set(isKnowledge() ? 'leftTab:knowledge' : isRepo() ? 'leftTab:repo' : 'leftTab', S.leftTab); switchLeft();
   });
   switchLeft();
 }
@@ -887,7 +1031,7 @@ function switchLeft() {
     }
     return;
   }
-  ({ figs: renderFigs, outline: renderOutline, files: renderFiles, info: renderInfo, overview: renderOverview, symbols: renderSymbols })[S.leftTab](o);
+  ({ plan: renderKnowledgePlan, sources: renderKnowledgeSources, figs: renderFigs, outline: renderOutline, files: renderFiles, info: renderInfo, overview: renderOverview, symbols: renderSymbols })[S.leftTab](o);
 }
 function pdfPage(page) {
   S.leftTab = 'pdf'; switchLeft(); showMobile('left');
@@ -1139,6 +1283,12 @@ function renderFileView(o, scrollToSel) {
 }
 
 function renderInfo(o) {
+  if (isKnowledge()) {
+    const m = S.paper.meta;
+    o.innerHTML = `<div class="pad md"><h3>${esc(m.title)}</h3><p>${esc(m.goal)}</p><table><tr><th>领域</th><td>${esc(m.domain)}</td></tr><tr><th>基础</th><td>${esc(m.level)}</td></tr><tr><th>重点</th><td>${esc(m.learning_mode)}</td></tr><tr><th>创建时间</th><td>${esc(m.created)}</td></tr></table><h4>学习记录</h4><p>讨论、分节笔记、自测纠错与历史保存在本机，可继续复习。</p><p><code>${esc(S.paper.path)}</code></p><button class="btn" data-knowledge-source>管理前沿来源</button></div>`;
+    $('[data-knowledge-source]', o).onclick = manageKnowledgeSources;
+    return;
+  }
   const m = S.paper.meta;
   if (isRepo()) {
     const row = (k, v) => (v ? `<tr><th>${k}</th><td>${v}</td></tr>` : '');
@@ -1200,7 +1350,7 @@ function bindRepoResources(el) {
 /* ---------------- 中栏：分析讨论 ---------------- */
 function talkedSet() {
   const t = new Set((S.paper?.messages || []).filter(m => m.role === 'assistant').map(m => String(m.station)));
-  if (t.has('0')) t.add('1');
+  if (!isKnowledge() && t.has('0')) t.add('1');
   return t;
 }
 function nextStation() {
@@ -1247,7 +1397,7 @@ function renderNext() {
   const box = $('#nextRow'); if (!box) return;
   const t = talkedSet(); const cur = ST[S.station]; const nx = nextStation();
   let html = '';
-  if (cur.id !== 'free' && !t.has(cur.id)) html += `<button class="btn primary sm" data-go="${cur.id}">▶ ${cur.id === '0' ? (isRepo() ? '开始：项目概览 + ① 定位' : '开始：基本情况 + ① 动机') : '开讲 ' + cur.label}</button>`;
+  if (cur.id !== 'free' && !t.has(cur.id)) html += `<button class="btn primary sm" data-go="${cur.id}">▶ ${cur.id === '0' ? (isKnowledge() ? '开始：先修诊断' : isRepo() ? '开始：项目概览 + ① 定位' : '开始：基本情况 + ① 动机') : '开讲 ' + cur.label}</button>`;
   else if (nx) html += `<button class="btn sm" data-go="${nx.id}">下一站：${nx.label} →</button>`;
   if (cur.id !== 'free' && t.has(cur.id)) html += `<button class="btn sm" data-note="${cur.note}">✎ 把「${cur.label}」整理进笔记</button>`;
   html += `<span class="grow"></span><span class="muted small">当前：${cur.label}</span>`;
@@ -1268,14 +1418,14 @@ function msgHtml(m, i, n) {
     ? `<button class="icon-btn" data-ma="del" title="删除">删除</button>`
     : `<button class="icon-btn" data-ma="copy">复制</button><button class="icon-btn" data-ma="qa" title="把这组问答压成一条记进笔记「问答」">记入问答</button>${last ? '<button class="icon-btn" data-ma="regen">重新生成</button>' : ''}<button class="icon-btn" data-ma="del">删除</button>`;
   return `<div class="msg ${m.role} ${last ? 'last' : ''}" tabindex="-1" data-id="${esc(m.id)}" data-st="${esc(m.station)}">
-    <div class="mhead">${m.role === 'user' ? '' : '<strong>AI</strong>'}<span>${esc(st)}</span><span>${fmtTime(m.ts)}</span></div>${body}<div class="macts">${acts}</div></div>`;
+    <div class="mhead">${m.role === 'user' ? '' : '<strong>AI</strong>'}<span>${esc(st)}</span><span>${fmtTime(m.ts)}</span></div>${body}<div class="macts">${acts}${m.error ? '<button class="icon-btn" data-ma="copy-error">复制错误</button>' : ''}</div></div>`;
 }
 function renderMsgs(keepScroll) {
   const box = $('#msgs'); const msgs = S.paper.messages;
   if (!msgs.length) {
     const mock = S.settings?.provider === 'mock';
     const m = S.paper.meta;
-    box.innerHTML = isRepo() ? `<div class="welcome"><h3>代码材料已经就绪</h3>
+    box.innerHTML = isKnowledge() ? `<div class="welcome"><h3>把「${esc(m.title)}」学到能独立运用</h3><p>从诊断开始，经过原理推导、数值例子、代码实验、方法对比与前沿证据，最后通过自测、纠错和复测检验理解。</p><p class="small muted">讲过的站点仅表示已讨论；掌握程度以你的实际作答为准。前沿内容需要近期来源支持。</p>${mock ? '<p class="err">当前是演示模式，请先在设置中配置模型。</p>' : ''}<button class="btn primary" data-start>▶ 开始：先修诊断</button></div>` : isRepo() ? `<div class="welcome"><h3>代码材料已经就绪</h3>
       <p class="small">${fmtNum(m.n_files)} 个文件 · 代码 ${fmtNum(m.n_code_lines)} 行 · 入口候选 ${(m.entry_points || []).length} 个 · 符号 ${fmtNum(m.n_symbols || 0)} 个</p>
       <ol class="route">${REPO_STATIONS.slice(0, 8).map(s => `<li>${esc(s.label)}</li>`).join('')}</ol>
       <p>一次讲一站，每个结论都带 <code>code/文件:行号</code>，点一下就在左边打开那几行。随时可以打断提问，或者在左侧选中代码让它讲。</p>
@@ -1345,6 +1495,7 @@ function bindMsgs(box) {
     const el = b.closest('.msg'); const id = el.dataset.id; const m = S.paper.messages.find(x => x.id === id);
     const act = b.dataset.ma;
     if (act === 'copy') { if (m) await copyContent(m.content); }
+    if (act === 'copy-error') { if (m) await copyContent(m.error || m.content); }
     if (act === 'del') {
       if (!confirm('删除这条消息？')) return;
       const r = await api(`/api/papers/${encodeURIComponent(S.slug)}/messages/${id}`, { method: 'DELETE' });
@@ -1502,14 +1653,27 @@ function scheduleSave(ms = 900) {
   setSaveState('未保存'); clearTimeout(S.saveTimer);
   S.saveTimer = setTimeout(flushSave, ms);
 }
-async function flushSave() {
-  if (!S.saveTimer && !['未保存', '保存失败'].includes(S.saveState)) return;
-  clearTimeout(S.saveTimer); S.saveTimer = null; setSaveState('保存中…');
-  try {
-    const r = await api(`/api/papers/${encodeURIComponent(S.slug)}/notes`, { method: 'PUT', json: { sections: S.notes.sections } });
-    S.notes.updated = r.updated; delete S.notes.imported_from;
-    const d = new Date(); setSaveState(`已保存 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${S.paper?.note_file || '精读笔记.html'}`);
-  } catch (e) { setSaveState('保存失败'); toast('笔记保存失败：' + e.message); }
+function flushSave() {
+  if (S.savePromise) return S.savePromise;
+  if (!S.saveTimer && !['未保存', '保存失败'].includes(S.saveState)) return Promise.resolve(true);
+  const slug = S.slug; const notes = S.notes;
+  if (!slug || !notes) return Promise.resolve(true);
+  const task = (async () => {
+    try {
+      for (;;) {
+        clearTimeout(S.saveTimer); S.saveTimer = null; setSaveState('保存中…');
+        const sections = { ...notes.sections };
+        const r = await api(`/api/papers/${encodeURIComponent(slug)}/notes`, { method: 'PUT', json: { sections } });
+        notes.updated = r.updated; delete notes.imported_from;
+        if (JSON.stringify(notes.sections) !== JSON.stringify(sections)) continue;
+        const d = new Date(); setSaveState(`已保存 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} · ${S.paper?.note_file || '精读笔记.html'}`);
+        return true;
+      }
+    } catch (err) { setSaveState('保存失败'); toast('笔记保存失败：' + err.message); return false; }
+    finally { if (S.savePromise === task) S.savePromise = null; }
+  })();
+  S.savePromise = task;
+  return task;
 }
 window.addEventListener('beforeunload', e => { if (S.saveState === '未保存') { flushSave(); e.preventDefault(); } });
 function refreshProgress() {
@@ -1536,6 +1700,126 @@ async function draftSection(key, msgId) {
   } catch (e) { if (e.name !== 'AbortError') d.error = e.message; }
   d.streaming = false; d.text = d.text.trim();
   rerenderSec(key);
+}
+
+/* Knowledge learning uses the same persisted discussions, notes and history as other materials. */
+function renderKnowledgeImporter(el, typeSeg) {
+  el.className = 'importer knowledge';
+  el.innerHTML = `<div class="imp-head"><h2>深入学习一个知识点</h2>${typeSeg}</div>
+    <p class="lead">不仅解释是什么，还要推导、实现、比较、迁移，再用你的实际作答检验理解。基础与新知识都可以学。</p>
+    <div class="knowledge-presets"><span class="muted small">具身与生成</span>${['Action Chunk', 'Flow Matching', 'RTC', 'VLA', 'World Model'].map(t => `<button class="chip" data-topic="${t}">${t}</button>`).join('')}
+    <span class="muted small">Agent 与新概念</span>${['RSI', 'Harness', '自定义热点知识'].map(t => `<button class="chip" data-topic="${t}">${t}</button>`).join('')}</div>
+    <div class="imp-main"><input id="impTarget" maxlength="160" aria-label="知识点名称" placeholder="例如 Action Chunk、Flow Matching、Harness；也可以输入任何新概念"><button class="btn primary" id="impGo">创建学习</button></div>
+    <div class="knowledge-fields">
+      <label>领域与语境<input id="knowledgeDomain" value="具身智能 / AI" placeholder="如机器人实时控制、Coding Agent（帮助消除缩写歧义）"></label>
+      <label>当前基础<select id="knowledgeLevel"><option>循序渐进（先诊断）</option><option>从零开始</option><option>已有基础，重点推导与实现</option><option>研究进阶与工程实践</option></select></label>
+      <label>学习重点<select id="knowledgeMode"><option>基础 + 前沿</option><option>基础原理与代码</option><option>前沿新知识与方法对比</option></select></label>
+      <label class="wide">学完希望能做什么<textarea id="knowledgeGoal" rows="2" maxlength="4000" placeholder="例如：独立实现异步动作块调度，解释延迟与动作接缝，并能排查失败案例"></textarea></label>
+      <label class="wide">近期一手来源（可选，每行一个，最多 5 个）<textarea id="knowledgeUrls" rows="3" placeholder="论文 PDF、官方文档、项目网页完整 URL"></textarea></label>
+    </div><p class="muted small">来源可稍后添加和刷新。公开网页/PDF 会保存快照；不提供实时搜索排名。没有近期证据时，前沿结论标为尚未核验。</p><div id="jobBox"></div>`;
+  $$('[data-type]', el).forEach(b => b.onclick = () => { S.importType = b.dataset.type; store.set('importType', S.importType); renderImporter(); });
+  $$('[data-topic]', el).forEach(b => b.onclick = () => { $('#impTarget').value = b.dataset.topic === '自定义热点知识' ? '' : b.dataset.topic; $('#impTarget').focus(); });
+  $('#impTarget', el).onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) createKnowledge(); };
+  $('#impGo', el).onclick = createKnowledge;
+}
+async function createKnowledge() {
+  const button = $('#impGo'); if (!button || button.disabled) return;
+  const title = $('#impTarget').value.trim(); if (!title) return toast('请填写想深入学习的知识点');
+  const urls = $('#knowledgeUrls').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  button.disabled = true;
+  try {
+    const result = await api('/api/knowledge', { method: 'POST', json: { title, domain: $('#knowledgeDomain').value,
+      level: $('#knowledgeLevel').value, goal: $('#knowledgeGoal').value.trim() || '能独立解释、推导、实现并迁移应用；通过自测与纠错补齐薄弱点',
+      learning_mode: $('#knowledgeMode').value, source_urls: urls } });
+    S.libFilter = 'all'; store.set('libFilter', 'all');
+    location.hash = '#/p/' + encodeURIComponent(result.slug);
+    if (urls.length) {
+      const job = await api(`/api/papers/${encodeURIComponent(result.slug)}/knowledge-sources`, { method: 'POST' });
+      jobModal('正在准备来源快照', job, () => { if (S.slug === result.slug) { S.leftTab = 'sources'; renderLeft(); } });
+    }
+  } catch (e) { toast('创建学习失败：' + e.message); }
+  finally { button.disabled = false; }
+}
+function renderKnowledgePlan(el) {
+  const m = S.paper.meta;
+  el.innerHTML = `<div class="pad md"><h3>学习路线</h3><p>${esc(m.goal)}</p><p class="muted small">${esc(m.level)} · ${esc(m.learning_mode)}</p>
+    <ol class="knowledge-roadmap">${KNOWLEDGE_STATIONS.filter(s => s.id !== 'free').map(s => `<li><button class="btn sm" data-learn="${s.id}">${esc(s.label)}</button><span class="muted small">${talkedSet().has(s.id) ? '已讨论 · 掌握程度待作答验证' : '待学习'}</span></li>`).join('')}</ol>
+    <h4>每课都要留下可检查的产出</h4><ul><li>能用自己的话解释，并识别常见误区。</li><li>能独立完成数值例子、推导或流程追踪。</li><li>能实现核心代码，设计验证与反例实验。</li><li>能说明边界与取舍，在新场景中作选择。</li><li>先答题，再纠错、补讲和变式复测。</li></ul>
+    <p class="muted small">基础参考：计算图/梯度 → Transformer → BC/ACT → Diffusion/Flow Matching → VLA/动作执行 → RL/World Model → 工程实践。按当前知识点补先修，不必重学全部。</p>
+    <button class="btn" data-source-manage>添加或刷新前沿来源</button></div>`;
+  $$('[data-learn]', el).forEach(b => b.onclick = () => { setStation(b.dataset.learn); showMobile('center'); });
+  $('[data-source-manage]', el).onclick = manageKnowledgeSources;
+}
+async function renderKnowledgeSources(el) {
+  const slug = S.slug;
+  el.innerHTML = '<div class="pad muted">正在读取来源快照…</div>';
+  try {
+    const r = await api(`/api/papers/${encodeURIComponent(slug)}/text?path=sources.md`);
+    if (S.slug !== slug || S.leftTab !== 'sources') return;
+    el.innerHTML = `<div class="pad"><button class="btn sm" data-refresh>管理 / 刷新来源</button><div class="md">${md(r.text, slug)}</div></div>`;
+  } catch {
+    if (S.slug !== slug || S.leftTab !== 'sources') return;
+    el.innerHTML = '<div class="pad"><p>尚未准备来源快照。补充近期论文、官方文档或项目页面，让前沿结论有据可查。</p><button class="btn" data-refresh>添加来源</button></div>';
+  }
+  $('[data-refresh]', el).onclick = manageKnowledgeSources;
+}
+function manageKnowledgeSources() {
+  const slug = S.slug;
+  openModal('前沿知识来源', `<p>优先提供近期一手论文、官方代码文档或项目网页，最多 5 个，每行一个。抓取日期不等于发布日期；失败的来源会注明原因。</p>
+    <textarea id="sourceUrls" rows="7" aria-label="来源链接">${esc((S.paper.meta.source_urls || []).join('\n'))}</textarea>
+    <p class="muted small">动态或需登录网页可能无法提取正文；已导入的论文/代码可用“合并同一工作”关联，供 AI 联合查阅。</p>
+    <button class="btn primary" id="refreshSources">保存并抓取快照</button>`, body => {
+    $('#refreshSources', body).onclick = async () => {
+      const button = $('#refreshSources', body); button.disabled = true;
+      try {
+        const urls = $('#sourceUrls', body).value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+        const job = await api(`/api/papers/${encodeURIComponent(slug)}/knowledge-sources`, { method: 'POST', json: { source_urls: urls } });
+        if (S.slug === slug) S.paper.meta.source_urls = urls;
+        jobModal('正在更新来源快照', job, () => { if (S.slug === slug) { S.leftTab = 'sources'; renderLeft(); } });
+      } catch (e) { toast(e.message); button.disabled = false; }
+    };
+  });
+}
+async function downloadLearning(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('文件下载失败，请重试');
+  const blob = await response.blob();
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const fallback = disposition.match(/filename=([^;]+)/i);
+  const a = document.createElement('a');
+  a.download = encoded ? decodeURIComponent(encoded[1]) : fallback ? fallback[1] : '学习总结.html';
+  a.href = URL.createObjectURL(blob); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+async function organizeStudy() {
+  if (S.reportCtrl) return toast('正在整理，请等待完成');
+  if (S.ctrl || Object.values(S.drafts).some(d => d.streaming)) return toast('请等待当前回复或笔记草稿完成，再整理学习内容');
+  if (!await flushSave()) return;
+  const slug = S.slug; const format = $('#studyFormat').value;
+  const ctrl = new AbortController(); S.reportCtrl = ctrl;
+  let result = null; let error = ''; let tail = '';
+  openModal(`正在整理学习内容 · ${format === 'tex' ? 'TeX' : 'HTML'}`, `<p id="reportStatus" role="status">正在汇总讨论、笔记、提问与纠错记录…</p><pre id="reportPreview" class="report-preview"></pre><p class="muted small">AI 会合并重复内容并保留推导、代码、来源、待解决问题和复习清单，完成后自动下载。原讨论和笔记继续保留。</p><div id="reportActions"><button class="btn" id="cancelReport">停止整理</button></div>`);
+  $('#cancelReport').onclick = () => ctrl.abort();
+  try {
+    await streamPost(`/api/papers/${encodeURIComponent(slug)}/study-export`, { format }, ev => {
+      if (ev.type === 'progress') { tail = ''; if ($('#reportStatus')) $('#reportStatus').textContent = ev.text; }
+      if (ev.type === 'text') { tail = (tail + ev.text).slice(-18000); if ($('#reportPreview')) $('#reportPreview').textContent = tail; }
+      if (ev.type === 'error') error = ev.error;
+      if (ev.type === 'done') result = ev;
+    }, ctrl.signal);
+    if (error) throw new Error(error);
+    if (!result) throw new Error('连接中断，未收到完整整理结果，请重试');
+    if ($('#reportStatus')) $('#reportStatus').textContent = '整理完成，已保存到本机资料目录，正在下载…';
+    if ($('#reportActions')) {
+      $('#reportActions').innerHTML = `<a class="btn primary" href="${esc(result.url)}">再次下载 ${format.toUpperCase()}</a>`;
+    }
+    await downloadLearning(result.url); toast('学习总结已生成并下载');
+  } catch (e) {
+    const message = e.name === 'AbortError' ? '已停止整理，原讨论和笔记已保留。' : '整理失败：' + e.message;
+    if ($('#reportStatus')) $('#reportStatus').textContent = message;
+    if ($('#reportActions')) $('#reportActions').innerHTML = '';
+    toast(message, 5000);
+  } finally { S.reportCtrl = null; }
 }
 
 /* ---------------- 启动 ---------------- */

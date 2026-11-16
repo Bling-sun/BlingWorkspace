@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 import markdown as md
+import knowledge
 
 NOTE_HTML = "精读笔记.html"
 NOTE_MD = "精读笔记.md"
@@ -60,6 +61,8 @@ def is_repo(meta):
 
 
 def sections_for(meta):
+    if meta and meta.get("kind") == "knowledge":
+        return knowledge.SECTIONS
     return REPO_SECTIONS if is_repo(meta) else SECTIONS
 
 
@@ -68,10 +71,14 @@ def titles_for(meta):
 
 
 def note_file(meta):
+    if meta and meta.get("kind") == "knowledge":
+        return "知识点学习笔记.html"
     return CODE_NOTE_HTML if is_repo(meta) else NOTE_HTML
 
 
 def note_label(meta):
+    if meta and meta.get("kind") == "knowledge":
+        return "知识点学习笔记"
     return "代码分析笔记" if is_repo(meta) else "精读笔记"
 
 
@@ -185,6 +192,8 @@ def repo_meta_line(meta):
 
 
 def meta_line(meta):
+    if meta.get("kind") == "knowledge":
+        return html.escape(" · ".join(str(meta.get(k) or "") for k in ("domain", "level", "learning_mode", "created")))
     if is_repo(meta):
         return repo_meta_line(meta)
     bits = []
@@ -208,15 +217,28 @@ def meta_line(meta):
     return " · ".join(bits)
 
 
-def _inline_images(doc, paper_dir):
+def _inline_images(doc, paper_dir, meta=None, related_only=False):
     root = Path(paper_dir).resolve()
 
     def repl(m):
         src = m.group(2)
         if re.match(r"^(https?:|data:|/)", src):
             return m.group(0)
-        f = (root / src).resolve()
-        if root not in f.parents or not f.is_file():
+        if related_only and not src.startswith("materials/"):
+            return m.group(0)
+        if src.startswith("materials/"):
+            import context
+            try:
+                f = context.Workspace(root, meta or {}).resolve(src)
+            except context.ToolError:
+                return m.group(0)
+            if f.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+                return m.group(0)
+        else:
+            f = (root / src).resolve()
+            if root not in f.parents:
+                return m.group(0)
+        if not f.is_file():
             return m.group(0)
         mime = mimetypes.guess_type(f.name)[0] or "image/png"
         b64 = base64.b64encode(f.read_bytes()).decode()
@@ -241,12 +263,18 @@ def render(paper_dir, notes, meta, mode="file", slug=None, discussion=None):
     tpl = re.sub(r'(<h1 id="note-title">).*?(</h1>)', lambda m: m.group(1) + html.escape(title) + m.group(2), tpl, flags=re.S)
     tpl = re.sub(r'(<p class="meta" id="note-meta">).*?(</p>)', lambda m: m.group(1) + meta_line(meta) + m.group(2), tpl, flags=re.S)
 
+    if meta.get("kind") == "knowledge":
+        for key, title in sections_for(meta):
+            tpl = re.sub(r'(<a\b[^>]*href="#' + key + r'"[^>]*>).*?(</a>)',
+                         lambda m, title=title: m.group(1) + html.escape(title) + m.group(2), tpl)
     secs = notes.get("sections", {})
 
     def fill(m):
         open_tag, key, body, close = m.group(1), m.group(2), m.group(3), m.group(4)
         h2 = H2_RE.match(body)
         head = h2.group(0).strip() if h2 else f"<h2>{titles.get(key, key)}</h2>"
+        if meta.get("kind") == "knowledge":
+            head = f"<h2>{html.escape(titles.get(key, key))}</h2>"
         content = md_to_html(secs.get(key, ""))
         if not content:
             content = '<p class="empty">（还没整理）</p>'
@@ -260,9 +288,11 @@ def render(paper_dir, notes, meta, mode="file", slug=None, discussion=None):
     doc = re.sub(r'(<p class="foot" id="note-foot">).*?(</p>)',
                  lambda m: m.group(1) + f"由 Bling-Workspace 生成 · 更新于 {now}" + m.group(2), doc, flags=re.S)
     if mode == "standalone":
-        doc = _inline_images(doc, paper_dir)
+        doc = _inline_images(doc, paper_dir, meta)
     elif mode == "web" and slug:
         doc = _web_paths(doc, slug)
+    elif mode == "file":
+        doc = _inline_images(doc, paper_dir, meta, related_only=True)
     return doc
 
 
@@ -273,6 +303,8 @@ REPO_STATION_NAMES = {"0": "概览", "1": "① 定位", "2": "② 结构", "3": 
 
 
 def station_names(meta):
+    if meta and meta.get("kind") == "knowledge":
+        return knowledge.NAMES
     return REPO_STATION_NAMES if is_repo(meta) else STATION_NAMES
 
 

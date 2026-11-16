@@ -48,6 +48,22 @@ python3 scripts/fetch_repo.py repos/pallets-flask                               
 `fetch_repo.py` uses only the standard library and never installs or runs anything from the repository. Entry points and core modules
 are heuristics (Python via AST, JS / TS / Go via imports, regex symbols for other languages); the model verifies them before relying on them.
 
+### Merge materials for the same work
+
+Use **Merge same work** in the library to combine an imported paper, project website and repository into one entry, such as SuperMimic's paper and website. Choose a work name and the material to open by default. Suggestions use matching arXiv IDs and explicit resource links; titles alone never trigger a merge.
+
+Switch materials using the tabs above the reader. Original discussions, notes, histories and files stay separate and unchanged. Switching waits for pending note saves and stays on the current material if saving fails. AI can jointly consult selected materials with source references; unselected and recycled materials are excluded.
+
+Manage the merged work to rename it, adjust its 2–20 members, change the default material, or dissolve it into separate cards. Deleting the work card recycles all visible members as one recoverable item; deleting a record inside the reader affects only that material.
+
+### Claude Code sign-in and error logs
+
+The local Claude Code provider requires no API key but still needs a Claude Code account sign-in on this machine. Signing in to the Claude desktop app is separate. Settings displays the actual CLI path and authentication status, with Copy login command and Refresh login status actions.
+
+If PowerShell cannot find `claude`, use the full native-install path: `& "$env:USERPROFILE\.local\bin\claude.exe" auth login`, or the actual path shown in Settings. Complete the official login flow, then refresh authentication status and test the connection. See the [official authentication documentation](https://code.claude.com/docs/en/authentication).
+
+Import jobs provide Copy full log, model errors provide Copy error, and connection tests provide Copy test result. All preserve complete line breaks and diagnostic text.
+
 ### Downloads, copying and complete record deletion
 
 Configure the code-import proxy in Settings. `auto` uses system/environment/Git proxy settings or a listening local port 7897; set an HTTP proxy explicitly or choose `direct`. Git and ZIP downloads share this setting, with codeload and archive ZIP endpoints available when Git fails.

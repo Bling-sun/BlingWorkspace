@@ -17,6 +17,7 @@ import glob
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import time
 
@@ -289,19 +290,64 @@ def _drain_stderr(proc, sink):
     return t
 
 
+class ClaudeLoginRequired(RuntimeError):
+    """A local account action is needed, rather than another model request."""
+
+
+def claude_login_command(exe):
+    if not exe:
+        return "claude auth login"
+    if os.name == "nt":
+        return "& '" + str(exe).replace("'", "''") + "' auth login"
+    return shlex.quote(str(exe)) + " auth login"
+
+
+def claude_auth_status(settings=None):
+    exe = find_cli("claude", settings)
+    result = {"available": bool(exe), "logged_in": None, "auth_method": None,
+              "path": exe, "login_command": claude_login_command(exe),
+              "shell": "PowerShell" if os.name == "nt" else "终端"}
+    if not exe:
+        result["detail"] = "未找到本机 Claude Code，请先安装，或填写命令行完整路径。"
+        return result
+    try:
+        kw = {"creationflags": 0x08000000} if os.name == "nt" else {}
+        run = subprocess.run([exe, "auth", "status"], env=_clean_env(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]),
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=8, **kw)
+        data = json.loads(run.stdout)
+        if not isinstance(data, dict) or not isinstance(data.get("loggedIn"), bool):
+            raise ValueError("unknown auth status")
+        # Return only diagnostic fields; never expose email addresses, tokens or raw CLI output.
+        result.update(logged_in=data["loggedIn"], auth_method=data.get("authMethod"),
+                      config_directory=data.get("configDirectory"))
+        result["detail"] = "本机 Claude Code 已登录。" if data["loggedIn"] else "本机 Claude Code 尚未登录；免 API Key 仍需先登录账号。"
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        result["detail"] = "暂时无法自动读取登录状态，可用完整路径登录后重新检测，或直接测试连接。"
+    return result
+
+
+def claude_login_error(exe):
+    return ("本机 Claude Code 尚未登录或会话已失效。免 API Key 不代表免账号登录；Claude 桌面端登录不能代替 Claude Code 登录。"
+            "请在 " + ("PowerShell" if os.name == "nt" else "终端") + " 执行：\n" + claude_login_command(exe)
+            + "\n完成官方登录后，在网页「设置」点击「刷新登录状态」再测试连接。")
+
+
 def _claude_cli(settings, system, messages, ws, partial=True):
     exe = find_cli("claude", settings)
     if not exe:
         raise RuntimeError("没找到 Claude Code（claude 命令）。安装：PowerShell 里运行 irm https://claude.ai/install.ps1 | iex，"
                            "然后在终端运行一次 claude，用 Claude 会员账号登录。装在别处的话在设置里填路径。")
+    auth = claude_auth_status(settings)
+    if auth["logged_in"] is False:
+        raise ClaudeLoginRequired(claude_login_error(exe))
     cwd = str(ws.paper) if ws else os.getcwd()
     cmd = [exe, "-p", "--output-format", "stream-json", "--verbose",
            "--allowedTools", "Read,Grep,Glob",
            "--disallowedTools", "Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Task"]
     if partial:
         cmd.append("--include-partial-messages")
-    if ws and ws.code and ws.paper not in ws.code.parents and ws.code != ws.paper:
-        cmd += ["--add-dir", str(ws.code)]
+    for directory in (ws.extra_dirs if ws else []):
+        cmd += ["--add-dir", str(directory)]
     if settings.get("model"):
         cmd += ["--model", settings["model"]]
     tail = ("直接输出给用户看的回复（Markdown），不要复述上面的说明。需要原文、代码或图时用 Read / Grep / Glob 读"
@@ -358,6 +404,9 @@ def _claude_cli(settings, system, messages, ws, partial=True):
     if not got_any and partial and "include-partial-messages" in msg:  # 老版本没有这个参数：不要逐字流式，重来一次
         yield from _claude_cli(settings, system, messages, ws, partial=False)
         return
+    auth_error = str(result_err or msg).lower()
+    if any(marker in auth_error for marker in ("not logged in", "please run /login", "login required")):
+        raise ClaudeLoginRequired(claude_login_error(exe))
     if result_err:
         raise RuntimeError(f"Claude Code 报错：{result_err}")
     if proc.returncode not in (0, None) and not got_any:
@@ -372,8 +421,8 @@ def _codex_cli(settings, system, messages, ws):
                            "然后在终端运行 codex login 用 ChatGPT 账号登录。装在别处的话在设置里填路径。")
     cwd = str(ws.paper) if ws else os.getcwd()
     cmd = [exe, "exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "-C", cwd, "--color", "never"]
-    if ws and ws.code and ws.paper not in ws.code.parents and ws.code != ws.paper:
-        cmd += ["--add-dir", str(ws.code)]
+    for directory in (ws.extra_dirs if ws else []):
+        cmd += ["--add-dir", str(directory)]
     if settings.get("model"):
         cmd += ["-m", settings["model"]]
     for p in [p for m in messages[-1:] for p in m.get("image_paths", [])][:4]:
@@ -461,6 +510,9 @@ def _mock_repo(ws, last):
 
 
 def _mock(settings, system, messages, ws):
+    if "知识点深入解析导师" in system:
+        yield {"type": "text", "text": "**演示模式**：当前未调用模型。请在设置中选择模型后开始先修诊断。\n\n知识点学习将依次完成：诊断 → 直觉 → 推导 → 数值例子 → 代码实验 → 方法对比 → 前沿证据 → 自测纠错。尚未作答的内容标为待验证。"}
+        return
     last = messages[-1]["content"] if messages else ""
     if ws and (ws.paper / "symbols.json").exists():
         yield from _mock_repo(ws, last)

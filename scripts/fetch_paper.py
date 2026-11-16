@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import unicodedata
 import urllib.request
@@ -47,6 +48,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import networking
 sys.dont_write_bytecode = True  # import extract_figures 时别在 skill 目录里留 __pycache__
 
 UA = "Bling-Workspace/1.0 (academic paper reader)"
@@ -74,7 +76,7 @@ def http_get(urls, timeout=120, tries=2):
         for i in range(tries):
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": UA})
-                with urllib.request.urlopen(req, timeout=timeout) as r:
+                with networking.urlopen(req, timeout=timeout) as r:
                     return r.read(), r.geturl()
             except Exception as e:  # noqa: BLE001 —— 网络错误五花八门，统一重试
                 last = e
@@ -662,6 +664,11 @@ def main():
     if not 1 <= args.max_pages <= 20 or not 0 <= args.max_images <= 100:
         ap.error("max-pages 必须为 1–20，max-images 必须为 0–100")
 
+    with tempfile.TemporaryDirectory(prefix="bling-paper-") as temporary:
+        return prepare_paper(args, Path(temporary))
+
+
+def prepare_paper(args, temporary):
     t = parse_target(args.target)
     from fetch_website import download, fetch_website
     if t["kind"] == "dir" and (t["path"] / "meta.json").exists():
@@ -696,14 +703,17 @@ def main():
             data = downloaded[0]
             if data[:4] != b"%PDF":
                 sys.exit("  ✗ 这个链接下下来不是 PDF（可能是网页）。给 PDF 直链，或者先手动下载再传本地路径。")
-            import tempfile
-            tmp_pdf = Path(tempfile.mkstemp(suffix=".pdf")[1])
+            # Path.write_bytes closes the handle before PyMuPDF/copy/unlink touch the file.
+            # The enclosing temporary directory is also cleaned up on any import error.
+            tmp_pdf = temporary / "download.pdf"
             tmp_pdf.write_bytes(data)
         else:
             tmp_pdf = t["path"]
         aid = aid or arxiv_id_from_pdf(tmp_pdf)  # 改过名的 arXiv PDF 第一页上有水印，照样能拉源码
 
     meta = arxiv_meta(aid) if aid else {}
+    if t["kind"] == "url-pdf":
+        meta["source_url"] = downloaded[1]
     if not meta.get("title"):
         pdf_for_title = tmp_pdf or (dest / "paper.pdf" if dest else None)
         if pdf_for_title and Path(pdf_for_title).exists():

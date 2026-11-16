@@ -26,5 +26,6 @@
   }
  },
  "network_proxy": "auto",
- "deleted_items": []
+ "deleted_items": [],
+ "work_groups": []
 }
